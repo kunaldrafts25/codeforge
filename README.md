@@ -30,8 +30,7 @@ codeforge/
 - **Frontend**: Next.js 14, Tailwind CSS, shadcn/ui, Monaco Editor
 - **Backend**: Node.js, Express, Prisma, PostgreSQL
 - **Real-time**: Socket.io
-- **Judge**: Judge0 CE (self-hosted)
-- **Cache**: Redis
+
 
 ## Environment Setup
 
