@@ -1,0 +1,214 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 
+ * GFG MIT-ADT Brand Colors
+ * Primary Green: #00895E
+ * Dark Background: #020817
+ * Matches: gfgmitadt.in
+ */
+
+:root {
+  /* Light Mode - GFG MIT-ADT Theme */
+  --background: 0 0% 100%;
+  --foreground: 220 20% 15%;
+  --card: 0 0% 100%;
+  --card-foreground: 220 20% 15%;
+
+  /* Primary: GFG Green #00895E */
+  --primary: 160 100% 27%;
+  --primary-foreground: 0 0% 100%;
+
+  /* Secondary: Light gray */
+  --secondary: 220 14% 96%;
+  --secondary-foreground: 220 20% 15%;
+
+  /* Muted: Subtle gray */
+  --muted: 220 14% 96%;
+  --muted-foreground: 220 9% 46%;
+
+  /* Accent: Light green tint */
+  --accent: 160 30% 95%;
+  --accent-foreground: 160 100% 27%;
+
+  /* Destructive: Red */
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+
+  /* Border/Input */
+  --border: 220 13% 91%;
+  --input: 220 13% 91%;
+  --ring: 160 100% 27%;
+
+  --radius: 0.5rem;
+}
+
+.dark {
+  /* Dark Mode - GFG MIT-ADT Theme */
+  /* Background: Deep Navy #020817 */
+  --background: 222 47% 3%;
+  --foreground: 210 40% 98%;
+
+  --card: 222 47% 5%;
+  --card-foreground: 210 40% 98%;
+
+  /* Primary: GFG Green (same in dark mode) */
+  --primary: 160 100% 27%;
+  --primary-foreground: 0 0% 100%;
+
+  /* Secondary: Dark slate */
+  --secondary: 217 33% 12%;
+  --secondary-foreground: 210 40% 98%;
+
+  /* Muted: Dark gray */
+  --muted: 217 33% 12%;
+  --muted-foreground: 215 20% 65%;
+
+  /* Accent: Dark green tint */
+  --accent: 160 30% 10%;
+  --accent-foreground: 160 70% 50%;
+
+  /* Destructive: Dark red */
+  --destructive: 0 63% 31%;
+  --destructive-foreground: 210 40% 98%;
+
+  /* Border/Input: Dark gray */
+  --border: 217 33% 15%;
+  --input: 217 33% 15%;
+  --ring: 160 100% 35%;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+body {
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  font-family:
+    'Inter',
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Glassmorphism effect for navbar (matching gfgmitadt.in) */
+.glass {
+  background: hsla(var(--background), 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* GFG Green gradient background accent */
+.gfg-gradient {
+  background: radial-gradient(ellipse 80% 50% at 50% -20%, hsla(160, 100%, 27%, 0.15), transparent);
+}
+
+/* Rating colors (Codeforces-style but with GFG green accent) */
+.rating-newbie {
+  color: #808080;
+}
+
+.rating-pupil {
+  color: #008000;
+}
+
+.rating-specialist {
+  color: #03a89e;
+}
+
+.rating-expert {
+  color: #0000ff;
+}
+
+.rating-candidate-master {
+  color: #aa00aa;
+}
+
+.rating-master {
+  color: #ff8c00;
+}
+
+.rating-grandmaster {
+  color: #ff0000;
+}
+
+.rating-legendary {
+  color: #ff0000;
+  font-weight: bold;
+}
+
+/* Smooth transitions */
+* {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Animated blob background */
+@keyframes blob {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}
+
+.animate-blob {
+  animation: blob 7s infinite;
+}
+
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+.animation-delay-4000 {
+  animation-delay: 4s;
+}
+
+.animation-delay-6000 {
+  animation-delay: 6s;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary));
+}

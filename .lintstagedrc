@@ -1,0 +1,13 @@
+{
+  "*.{ts,tsx}": [
+    "npx eslint --fix --no-error-on-unmatched-pattern",
+    "npx prettier --write"
+  ],
+  "*.{js,jsx}": [
+    "npx eslint --fix --no-error-on-unmatched-pattern",
+    "npx prettier --write"
+  ],
+  "*.{json,md,css}": [
+    "npx prettier --write"
+  ]
+}
