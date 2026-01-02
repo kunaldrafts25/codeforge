@@ -31,7 +31,6 @@ codeforge/
 - **Backend**: Node.js, Express, Prisma, PostgreSQL
 - **Real-time**: Socket.io
 
-
 ## Environment Setup
 
 Copy the example env files:
@@ -43,4 +42,4 @@ cp backend/.env.example backend/.env
 
 ## Team
 
-Built by GFG MIT-ADT Student Chapter.
+Built by Kunal Singh
