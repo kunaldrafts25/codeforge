@@ -42,4 +42,4 @@ cp backend/.env.example backend/.env
 
 ## Team
 
-Built by Kunal Singh
+Built by GFG MIT-ADT.
