@@ -15,6 +15,7 @@ interface LeaderboardUser {
   maxRating: number
   problemsSolved: number
   contestsParticipated: number
+  avatarUrl?: string | null
 }
 
 export default function LeaderboardPage() {
@@ -26,9 +27,10 @@ export default function LeaderboardPage() {
     try {
       setLoading(true)
       const res = await api.get('/leaderboard', { params: { page, limit: 50 } })
-      setUsers(res.data.users)
+      setUsers(res.data?.users || [])
     } catch (err) {
       logger.error('Failed to fetch leaderboard:', err)
+      setUsers([])
     } finally {
       setLoading(false)
     }

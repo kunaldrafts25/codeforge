@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Login Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        button { padding: 10px 20px; margin: 10px; cursor: pointer; }
+        .result { margin: 20px 0; padding: 10px; border: 1px solid #ccc; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+    </style>
+</head>
+<body>
+    <h1>Simple Login Test</h1>
+    <button onclick="testLogin()">Test Login</button>
+    <button onclick="testServer()">Test Server</button>
+    <div id="result"></div>
+    
+    <script>
+        async function testServer() {
+            try {
+                const response = await fetch('http://localhost:5000/api/test')
+                const data = await response.json()
+                document.getElementById('result').innerHTML = `
+                    <div class="result success">
+                        <h3>✅ Server Test Successful</h3>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    </div>
+                `
+            } catch (error) {
+                document.getElementById('result').innerHTML = `
+                    <div class="result error">
+                        <h3>❌ Server Test Failed</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `
+            }
+        }
+        
+        async function testLogin() {
+            try {
+                console.log('🚀 Starting login test...')
+                
+                const response = await fetch('http://localhost:5000/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        email: 'admin@gfgmitadt.in',
+                        password: 'admin123'
+                    })
+                })
+                
+                console.log('📡 Response status:', response.status)
+                console.log('📡 Response headers:', response.headers)
+                
+                const data = await response.json()
+                console.log('📊 Response data:', data)
+                
+                if (response.ok) {
+                    document.getElementById('result').innerHTML = `
+                        <div class="result success">
+                            <h3>✅ Login Successful!</h3>
+                            <p>Status: ${response.status}</p>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                            <p>Token: ${data.token}</p>
+                            <p>User: ${data.user.displayName}</p>
+                        </div>
+                    `
+                } else {
+                    document.getElementById('result').innerHTML = `
+                        <div class="result error">
+                            <h3>❌ Login Failed</h3>
+                            <p>Status: ${response.status}</p>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `
+                }
+            } catch (error) {
+                console.error('💥 Login error:', error)
+                document.getElementById('result').innerHTML = `
+                    <div class="result error">
+                        <h3>💥 Network Error</h3>
+                        <p>${error.message}</p>
+                        <p>Check browser console for more details</p>
+                    </div>
+                `
+            }
+        }
+    </script>
+</body>
+</html>
