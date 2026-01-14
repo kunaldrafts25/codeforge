@@ -64,7 +64,9 @@ export default function Home() {
                   <Users className="w-8 h-8" />
                 </div>
                 <h3 className="text-xl font-semibold mb-2">Rating System</h3>
-                <p className="text-muted-foreground">Track your progress with our ELO-based rating system.</p>
+                <p className="text-muted-foreground">
+                  Track your progress with our ELO-based rating system.
+                </p>
               </div>
             </Link>
           </div>

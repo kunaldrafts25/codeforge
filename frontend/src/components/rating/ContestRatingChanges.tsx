@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import { Trophy, Target, TrendingUp } from 'lucide-react'
+import { Trophy, Target } from 'lucide-react'
 
 interface TopUser {
   id: string
@@ -32,14 +32,12 @@ export function ContestRatingChanges() {
       try {
         const [topUsersResponse, distributionResponse] = await Promise.all([
           api.get('/ratings/top?limit=10'),
-          api.get('/ratings/distribution')
+          api.get('/ratings/distribution'),
         ])
-        
+
         setTopUsers(topUsersResponse.data)
         setDistribution(distributionResponse.data)
       } catch (error) {
-        console.error('Failed to fetch rating data:', error)
-      } finally {
         setLoading(false)
       }
     }
@@ -56,7 +54,7 @@ export function ContestRatingChanges() {
           </CardHeader>
           <CardContent>
             <div className="animate-pulse space-y-4">
-              {[1, 2, 3, 4, 5].map((i) => (
+              {[1, 2, 3, 4, 5].map(i => (
                 <div key={i} className="h-12 bg-muted rounded" />
               ))}
             </div>
@@ -68,7 +66,7 @@ export function ContestRatingChanges() {
           </CardHeader>
           <CardContent>
             <div className="animate-pulse space-y-2">
-              {[1, 2, 3, 4, 5].map((i) => (
+              {[1, 2, 3, 4, 5].map(i => (
                 <div key={i} className="h-8 bg-muted rounded" />
               ))}
             </div>
@@ -87,7 +85,11 @@ export function ContestRatingChanges() {
       case 3:
         return <Trophy className="w-5 h-5 text-amber-600" />
       default:
-        return <span className="w-5 h-5 flex items-center justify-center text-sm font-medium text-muted-foreground">#{rank}</span>
+        return (
+          <span className="w-5 h-5 flex items-center justify-center text-sm font-medium text-muted-foreground">
+            #{rank}
+          </span>
+        )
     }
   }
 
@@ -110,9 +112,7 @@ export function ContestRatingChanges() {
             <Trophy className="w-5 h-5" />
             Top Rated Users
           </CardTitle>
-          <CardDescription>
-            Highest rated programmers on CodeForge
-          </CardDescription>
+          <CardDescription>Highest rated programmers on CodeForge</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -124,21 +124,15 @@ export function ContestRatingChanges() {
                 <div className="flex items-center gap-3">
                   {getRankIcon(index + 1)}
                   <div>
-                    <div className="font-medium">
-                      {user.displayName || user.username}
-                    </div>
+                    <div className="font-medium">{user.displayName || user.username}</div>
                     <div className="text-sm text-muted-foreground">
                       @{user.username} • {user.problemsSolved} solved
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
-                  <Badge className={getRatingBadgeColor(user.rating)}>
-                    {user.rating}
-                  </Badge>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    Max: {user.maxRating}
-                  </div>
+                  <Badge className={getRatingBadgeColor(user.rating)}>{user.rating}</Badge>
+                  <div className="text-xs text-muted-foreground mt-1">Max: {user.maxRating}</div>
                 </div>
               </div>
             ))}
@@ -152,9 +146,7 @@ export function ContestRatingChanges() {
             <Target className="w-5 h-5" />
             Rating Distribution
           </CardTitle>
-          <CardDescription>
-            Distribution of users across rating ranges
-          </CardDescription>
+          <CardDescription>Distribution of users across rating ranges</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
@@ -163,8 +155,7 @@ export function ContestRatingChanges() {
               .sort(([a], [b]) => parseInt(a) - parseInt(b))
               .map(([range, count]) => {
                 const percentage = totalUsers > 0 ? (count / totalUsers) * 100 : 0
-                const [minRating] = range.split('-').map(Number)
-                
+
                 return (
                   <div key={range} className="space-y-2">
                     <div className="flex justify-between text-sm">
@@ -178,11 +169,9 @@ export function ContestRatingChanges() {
                 )
               })}
           </div>
-          
+
           {totalUsers === 0 && (
-            <p className="text-muted-foreground text-center py-8">
-              No rating data available yet
-            </p>
+            <p className="text-muted-foreground text-center py-8">No rating data available yet</p>
           )}
         </CardContent>
       </Card>

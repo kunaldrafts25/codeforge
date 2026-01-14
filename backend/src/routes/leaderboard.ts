@@ -39,7 +39,6 @@ router.get('/', async (req, res) => {
 
     res.json({ users: ranked })
   } catch (err) {
-    console.error(err)
     res.status(500).json({ message: 'Failed to fetch leaderboard' })
   }
 })

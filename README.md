@@ -31,7 +31,6 @@ codeforge/
 - **Backend**: Node.js, Express, Prisma, PostgreSQL
 - **Real-time**: Socket.io
 
-
 ## Environment Setup
 
 Copy the example env files:

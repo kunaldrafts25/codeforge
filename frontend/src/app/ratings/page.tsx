@@ -33,7 +33,7 @@ export default function RatingsPage() {
           setUserRating(response.data)
         }
       } catch (error) {
-        console.error('Failed to fetch user rating:', error)
+        // Handle error silently
       } finally {
         setLoading(false)
       }
@@ -80,8 +80,8 @@ export default function RatingsPage() {
           Rating System
         </h1>
         <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-          Track your competitive programming progress with our ELO-based rating system.
-          Climb the ranks and compete with the best!
+          Track your competitive programming progress with our ELO-based rating system. Climb the
+          ranks and compete with the best!
         </p>
       </div>
 
@@ -93,9 +93,7 @@ export default function RatingsPage() {
               <TrendingUp className="w-5 h-5" />
               Your Rating
             </CardTitle>
-            <CardDescription>
-              Your current competitive programming rating
-            </CardDescription>
+            <CardDescription>Your current competitive programming rating</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid md:grid-cols-4 gap-6">
@@ -110,11 +108,15 @@ export default function RatingsPage() {
                 <div className="text-sm text-muted-foreground">Max Rating</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-semibold text-primary">{userRating.problemsSolved}</div>
+                <div className="text-2xl font-semibold text-primary">
+                  {userRating.problemsSolved}
+                </div>
                 <div className="text-sm text-muted-foreground">Problems Solved</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-semibold text-primary">{userRating.contestsCount}</div>
+                <div className="text-2xl font-semibold text-primary">
+                  {userRating.contestsCount}
+                </div>
                 <div className="text-sm text-muted-foreground">Contests</div>
               </div>
             </div>
@@ -124,9 +126,7 @@ export default function RatingsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Join the Competition</CardTitle>
-            <CardDescription>
-              Sign up to track your rating and compete with others
-            </CardDescription>
+            <CardDescription>Sign up to track your rating and compete with others</CardDescription>
           </CardHeader>
           <CardContent className="flex gap-4">
             <Link href="/register">
@@ -145,13 +145,11 @@ export default function RatingsPage() {
           <CardHeader>
             <History className="w-8 h-8 mx-auto text-primary mb-2" />
             <CardTitle>Rating History</CardTitle>
-            <CardDescription>
-              Track your rating changes over time
-            </CardDescription>
+            <CardDescription>Track your rating changes over time</CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              View your complete rating history and see how you've improved through contests.
+              View your complete rating history and see how you&apos;ve improved through contests.
             </p>
           </CardContent>
         </Card>
@@ -160,9 +158,7 @@ export default function RatingsPage() {
           <CardHeader>
             <Target className="w-8 h-8 mx-auto text-primary mb-2" />
             <CardTitle>Top Rated Users</CardTitle>
-            <CardDescription>
-              See the best programmers on the platform
-            </CardDescription>
+            <CardDescription>See the best programmers on the platform</CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
@@ -175,9 +171,7 @@ export default function RatingsPage() {
           <CardHeader>
             <BarChart3 className="w-8 h-8 mx-auto text-primary mb-2" />
             <CardTitle>Rating Distribution</CardTitle>
-            <CardDescription>
-              Understand the rating distribution
-            </CardDescription>
+            <CardDescription>Understand the rating distribution</CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
@@ -198,15 +192,17 @@ export default function RatingsPage() {
         <CardContent className="text-center py-8">
           <h3 className="text-2xl font-semibold mb-4">Ready to Improve Your Rating?</h3>
           <p className="text-muted-foreground mb-6 max-w-2xl mx-auto">
-            Participate in contests, solve problems, and climb the leaderboard. 
-            Every contest is an opportunity to showcase your skills and improve your rating.
+            Participate in contests, solve problems, and climb the leaderboard. Every contest is an
+            opportunity to showcase your skills and improve your rating.
           </p>
           <div className="flex gap-4 justify-center">
             <Link href="/contests">
               <Button size="lg">Browse Contests</Button>
             </Link>
             <Link href="/problems">
-              <Button variant="outline" size="lg">Practice Problems</Button>
+              <Button variant="outline" size="lg">
+                Practice Problems
+              </Button>
             </Link>
           </div>
         </CardContent>

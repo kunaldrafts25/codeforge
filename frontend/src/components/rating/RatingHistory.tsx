@@ -30,7 +30,7 @@ export function RatingHistory() {
         const response = await api.get('/ratings/history')
         setRatingChanges(response.data)
       } catch (error) {
-        console.error('Failed to fetch rating history:', error)
+        // Handle error silently
       } finally {
         setLoading(false)
       }
@@ -47,7 +47,7 @@ export function RatingHistory() {
         </CardHeader>
         <CardContent>
           <div className="animate-pulse space-y-4">
-            {[1, 2, 3].map((i) => (
+            {[1, 2, 3].map(i => (
               <div key={i} className="h-16 bg-muted rounded" />
             ))}
           </div>
@@ -61,9 +61,7 @@ export function RatingHistory() {
       <Card>
         <CardHeader>
           <CardTitle>Rating History</CardTitle>
-          <CardDescription>
-            Your rating changes from participating in contests
-          </CardDescription>
+          <CardDescription>Your rating changes from participating in contests</CardDescription>
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground text-center py-8">
@@ -90,13 +88,11 @@ export function RatingHistory() {
     <Card>
       <CardHeader>
         <CardTitle>Rating History</CardTitle>
-        <CardDescription>
-          Your rating changes from participating in contests
-        </CardDescription>
+        <CardDescription>Your rating changes from participating in contests</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          {ratingChanges.map((change) => (
+          {ratingChanges.map(change => (
             <div
               key={change.id}
               className="flex items-center justify-between p-4 rounded-lg border bg-card/50"
@@ -119,7 +115,8 @@ export function RatingHistory() {
                   className={`flex items-center gap-1 ${getRatingColor(change.change)}`}
                 >
                   {getRatingIcon(change.change)}
-                  {change.change > 0 ? '+' : ''}{change.change}
+                  {change.change > 0 ? '+' : ''}
+                  {change.change}
                 </Badge>
               </div>
             </div>
