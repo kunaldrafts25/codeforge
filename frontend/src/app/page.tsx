@@ -58,11 +58,17 @@ export default function Home() {
               title="Live Contests"
               description="Compete in real-time contests with students from MIT-ADT."
             />
-            <FeatureCard
-              icon={<Users className="w-8 h-8" />}
-              title="Rating System"
-              description="Track your progress with our ELO-based rating system."
-            />
+            <Link href="/ratings">
+              <div className="group p-6 rounded-xl bg-card/50 border border-border/50 backdrop-blur-sm hover:bg-card/70 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 cursor-pointer">
+                <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary mb-4 group-hover:scale-110 transition-transform duration-300">
+                  <Users className="w-8 h-8" />
+                </div>
+                <h3 className="text-xl font-semibold mb-2">Rating System</h3>
+                <p className="text-muted-foreground">
+                  Track your progress with our ELO-based rating system.
+                </p>
+              </div>
+            </Link>
           </div>
         </div>
       </section>

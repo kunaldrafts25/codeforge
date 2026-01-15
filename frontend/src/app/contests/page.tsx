@@ -32,7 +32,7 @@ export default function ContestsPage() {
       const res = await api.get('/contests')
       setContests(res.data)
     } catch (err) {
-      console.error('Failed to fetch contests:', err)
+      // Handle error silently
     } finally {
       setLoading(false)
     }

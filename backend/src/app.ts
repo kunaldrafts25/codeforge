@@ -11,6 +11,7 @@ import contestRoutes from './routes/contests.js'
 import submissionRoutes from './routes/submissions.js'
 import leaderboardRoutes from './routes/leaderboard.js'
 import adminRoutes from './routes/admin.js'
+import ratingRoutes from './routes/ratings.js'
 import { setupSocket } from './socket/index.js'
 import { errorHandler } from './middleware/error.js'
 
@@ -39,6 +40,7 @@ app.use('/api/problems', problemRoutes)
 app.use('/api/contests', contestRoutes)
 app.use('/api/submissions', submissionRoutes)
 app.use('/api/leaderboard', leaderboardRoutes)
+app.use('/api/ratings', ratingRoutes)
 app.use('/api/admin', adminRoutes)
 
 // Root route
@@ -54,6 +56,7 @@ app.get('/', (req, res) => {
       contests: '/api/contests',
       submissions: '/api/submissions',
       leaderboard: '/api/leaderboard',
+      ratings: '/api/ratings',
       admin: '/api/admin',
     },
   })
@@ -69,8 +72,6 @@ app.use(errorHandler)
 
 const PORT = process.env.PORT || 5000
 
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`)
-})
+server.listen(PORT, () => {})
 
 export { io }

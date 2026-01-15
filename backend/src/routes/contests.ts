@@ -30,7 +30,6 @@ router.get('/', async (req, res) => {
       }))
     )
   } catch (err) {
-    console.error(err)
     res.status(500).json({ message: 'Failed to fetch contests' })
   }
 })
@@ -84,7 +83,6 @@ router.get('/:slug', optionalAuth, async (req, res) => {
       })),
     })
   } catch (err) {
-    console.error(err)
     res.status(500).json({ message: 'Failed to fetch contest' })
   }
 })
@@ -106,15 +104,14 @@ router.post('/:slug/register', auth, async (req, res) => {
 
     await prisma.contestParticipant.upsert({
       where: {
-        contestId_userId: { contestId: contest.id, userId: req.user!.id },
+        contestId_userId: { contestId: contest.id, userId: req.user?.id || '' },
       },
-      create: { contestId: contest.id, userId: req.user!.id },
+      create: { contestId: contest.id, userId: req.user?.id || '' },
       update: {},
     })
 
     res.json({ message: 'Registered successfully' })
   } catch (err) {
-    console.error(err)
     res.status(500).json({ message: 'Registration failed' })
   }
 })
@@ -156,7 +153,6 @@ router.get('/:slug/leaderboard', async (req, res) => {
       })),
     })
   } catch (err) {
-    console.error(err)
     res.status(500).json({ message: 'Failed to fetch leaderboard' })
   }
 })

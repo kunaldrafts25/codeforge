@@ -50,7 +50,8 @@ const defaultCode: Record<string, string> = {
 }
 
 export default function ProblemPage() {
-  const { slug } = useParams()
+  const params = useParams()
+  const slug = params?.slug as string
   const [problem, setProblem] = useState<Problem | null>(null)
   const [loading, setLoading] = useState(true)
   const [language, setLanguage] = useState('cpp')

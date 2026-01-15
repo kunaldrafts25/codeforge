@@ -37,7 +37,7 @@ router.patch('/me', auth, async (req, res) => {
     const { displayName, bio, avatarUrl } = req.body
 
     const user = await prisma.user.update({
-      where: { id: req.user!.id },
+      where: { id: req.user?.id || '' },
       data: {
         displayName: displayName || undefined,
         bio: bio || undefined,

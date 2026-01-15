@@ -28,7 +28,12 @@ export async function auth(req: Request, res: Response, next: NextFunction) {
     }
 
     const token = header.slice(7)
-    const payload = jwt.verify(token, process.env.JWT_SECRET!) as JWTPayload
+    const jwtSecret = process.env.JWT_SECRET
+    if (!jwtSecret) {
+      return res.status(500).json({ message: 'Server configuration error' })
+    }
+
+    const payload = jwt.verify(token, jwtSecret) as JWTPayload
 
     const user = await prisma.user.findUnique({
       where: { id: payload.userId },
