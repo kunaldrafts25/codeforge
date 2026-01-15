@@ -34,7 +34,8 @@ interface ContestLeaderboardEntry extends LeaderboardEntry {
 }
 
 export default function ContestPage() {
-  const { slug } = useParams()
+  const params = useParams()
+  const slug = params?.slug as string
   const { user } = useAuth()
   const [contest, setContest] = useState<Contest | null>(null)
   const [leaderboard, setLeaderboard] = useState<ContestLeaderboardEntry[]>([])
