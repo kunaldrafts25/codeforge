@@ -104,9 +104,9 @@ router.post('/:slug/register', auth, async (req, res) => {
 
     await prisma.contestParticipant.upsert({
       where: {
-        contestId_userId: { contestId: contest.id, userId: req.user!.id },
+        contestId_userId: { contestId: contest.id, userId: req.user?.id || '' },
       },
-      create: { contestId: contest.id, userId: req.user!.id },
+      create: { contestId: contest.id, userId: req.user?.id || '' },
       update: {},
     })
 

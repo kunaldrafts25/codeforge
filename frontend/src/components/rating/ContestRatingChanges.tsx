@@ -30,14 +30,20 @@ export function ContestRatingChanges() {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        console.log('🔍 Fetching rating data...')
         const [topUsersResponse, distributionResponse] = await Promise.all([
           api.get('/ratings/top?limit=10'),
           api.get('/ratings/distribution'),
         ])
 
+        console.log('✅ Top users response:', topUsersResponse.data)
+        console.log('✅ Distribution response:', distributionResponse.data)
+
         setTopUsers(topUsersResponse.data)
         setDistribution(distributionResponse.data)
       } catch (error) {
+        console.log('❌ Error fetching rating data:', error)
+      } finally {
         setLoading(false)
       }
     }

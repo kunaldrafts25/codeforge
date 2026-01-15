@@ -24,7 +24,8 @@ export default function LoginPage() {
       router.push('/problems')
     } catch (err) {
       const error = err as AxiosError<{ message: string }>
-      setError(error.response?.data?.message || 'Login failed')
+      const errorMessage = error.response?.data?.message || error.message || 'Login failed'
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }

@@ -8,7 +8,7 @@ const router = Router()
 router.get('/history', auth, async (req, res) => {
   try {
     const ratingChanges = await prisma.ratingChange.findMany({
-      where: { userId: req.user!.id },
+      where: { userId: req.user?.id || '' },
       include: {
         contest: {
           select: {
@@ -31,7 +31,7 @@ router.get('/history', auth, async (req, res) => {
 router.get('/me', auth, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
-      where: { id: req.user!.id },
+      where: { id: req.user?.id || '' },
       select: {
         id: true,
         username: true,

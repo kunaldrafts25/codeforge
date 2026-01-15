@@ -91,9 +91,7 @@ router.post('/register', async (req, res) => {
     })
 
     res.status(201).json({ user, token })
-  } catch (err) {
-    const error = err instanceof Error ? err.message : 'Unknown error'
-    process.stderr.write(`Registration failed: ${error}\n`)
+  } catch (_err) {
     res.status(500).json({ message: 'Registration failed' })
   }
 })
@@ -143,9 +141,7 @@ router.post('/login', async (req, res) => {
       },
       token,
     })
-  } catch (err) {
-    const error = err instanceof Error ? err.message : 'Unknown error'
-    process.stderr.write(`Login failed: ${error}\n`)
+  } catch (_err) {
     res.status(500).json({ message: 'Login failed' })
   }
 })
