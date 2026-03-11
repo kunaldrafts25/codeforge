@@ -3,8 +3,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
-import { getDifficultyColor, cn } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
 import { Search } from 'lucide-react'
+import { useDebounce } from '@/lib/hooks'
 
 interface Problem {
   id: string
@@ -20,15 +22,34 @@ interface FetchParams {
   page: number
   limit: number
   difficulty?: string
+  tag?: string
+  search?: string
 }
 
 const difficulties = ['All', 'Easy', 'Medium', 'Hard', 'Expert']
+
+const POPULAR_TAGS = [
+  'array',
+  'string',
+  'dynamic-programming',
+  'graphs',
+  'math',
+  'sorting',
+  'binary-search',
+  'greedy',
+  'trees',
+  'recursion',
+  'hash-table',
+  'two-pointers',
+]
 
 export default function ProblemsPage() {
   const [problems, setProblems] = useState<Problem[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebounce(search, 300)
   const [difficulty, setDifficulty] = useState('All')
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
 
@@ -37,6 +58,8 @@ export default function ProblemsPage() {
       setLoading(true)
       const params: FetchParams = { page, limit: 20 }
       if (difficulty !== 'All') params.difficulty = difficulty.toLowerCase()
+      if (selectedTags.length > 0) params.tag = selectedTags[0]
+      if (debouncedSearch) params.search = debouncedSearch
 
       const res = await api.get('/problems', { params })
       setProblems(res.data.problems)
@@ -47,21 +70,37 @@ export default function ProblemsPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, difficulty])
+  }, [page, difficulty, selectedTags, debouncedSearch])
 
   useEffect(() => {
     fetchProblems()
   }, [fetchProblems])
 
-  const filteredProblems = problems.filter(p =>
-    p.title.toLowerCase().includes(search.toLowerCase())
-  )
+  // No longer need client-side filtering since search is handled by the API
+  const filteredProblems = problems
+
+  const toggleTag = (tag: string) => {
+    setSelectedTags(prev => (prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]))
+    setPage(1)
+  }
+
+  const clearTags = () => {
+    setSelectedTags([])
+    setPage(1)
+  }
 
   const getDifficultyLabel = (level: number) => {
     if (level <= 2) return 'Easy'
     if (level <= 5) return 'Medium'
     if (level <= 8) return 'Hard'
     return 'Expert'
+  }
+
+  const getDifficultyBadgeClass = (level: number) => {
+    if (level <= 2) return 'bg-green-500/10 text-green-500 border-green-500/20'
+    if (level <= 5) return 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20'
+    if (level <= 8) return 'bg-purple-500/10 text-purple-500 border-purple-500/20'
+    return 'bg-red-500/10 text-red-500 border-red-500/20'
   }
 
   return (
@@ -95,6 +134,34 @@ export default function ProblemsPage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 mb-6">
+        {POPULAR_TAGS.map(tag => (
+          <button
+            key={tag}
+            onClick={() => toggleTag(tag)}
+            className={cn(
+              'px-3 py-1 rounded-full text-sm transition-colors border',
+              selectedTags.includes(tag)
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'bg-muted/40 hover:bg-muted/70 text-muted-foreground border-border'
+            )}
+            type="button"
+          >
+            {tag}
+          </button>
+        ))}
+
+        {selectedTags.length > 0 && (
+          <button
+            onClick={clearTags}
+            className="px-3 py-1 text-sm text-muted-foreground hover:text-foreground"
+            type="button"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <table className="w-full">
           <thead className="bg-muted/50">
@@ -109,7 +176,7 @@ export default function ProblemsPage() {
                 Tags
               </th>
               <th className="text-right px-6 py-4 text-sm font-medium text-muted-foreground">
-                Acceptance
+                Statistics
               </th>
             </tr>
           </thead>
@@ -138,11 +205,15 @@ export default function ProblemsPage() {
                     </Link>
                   </td>
                   <td className="px-6 py-4 hidden md:table-cell">
-                    <span
-                      className={cn('text-sm font-medium', getDifficultyColor(problem.difficulty))}
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        'text-xs font-medium',
+                        getDifficultyBadgeClass(problem.difficulty)
+                      )}
                     >
                       {getDifficultyLabel(problem.difficulty)}
-                    </span>
+                    </Badge>
                   </td>
                   <td className="px-6 py-4 hidden lg:table-cell">
                     <div className="flex gap-2 flex-wrap">
@@ -156,10 +227,25 @@ export default function ProblemsPage() {
                       ))}
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-right text-sm text-muted-foreground">
-                    {problem.attemptCount > 0
-                      ? `${Math.round((problem.solveCount / problem.attemptCount) * 100)}%`
-                      : '-'}
+                  <td className="px-6 py-4 text-right">
+                    <div className="inline-flex flex-col items-end gap-1">
+                      <div className="text-sm font-medium text-foreground">
+                        {problem.solveCount}{' '}
+                        <span className="text-muted-foreground font-normal">solved</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {problem.attemptCount > 0 ? (
+                          <span>
+                            Acceptance:{' '}
+                            <span className="text-foreground">
+                              {Math.round((problem.solveCount / problem.attemptCount) * 100)}%
+                            </span>
+                          </span>
+                        ) : (
+                          <span>No attempts yet</span>
+                        )}
+                      </div>
+                    </div>
                   </td>
                 </tr>
               ))
