@@ -75,7 +75,7 @@ Consider only alphanumeric characters and ignore cases.`,
       rating: 800,
       timeLimit: 1000,
       memoryLimit: 262144,
-      tags: ['string', 'two-pointers'],
+      tags: ['strings', 'two-pointers'],
       isPublic: true,
       authorId: admin.id,
       testCases: {

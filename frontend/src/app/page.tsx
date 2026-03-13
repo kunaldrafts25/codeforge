@@ -48,16 +48,28 @@ export default function Home() {
         <div className="max-w-6xl mx-auto">
           <h2 className="text-3xl font-bold text-center mb-12">Why CodeForge?</h2>
           <div className="grid md:grid-cols-3 gap-8">
-            <FeatureCard
-              icon={<Code2 className="w-8 h-8" />}
-              title="Practice Problems"
-              description="Curated problems across all difficulty levels to sharpen your skills."
-            />
-            <FeatureCard
-              icon={<Trophy className="w-8 h-8" />}
-              title="Live Contests"
-              description="Compete in real-time contests with students from MIT-ADT."
-            />
+            <Link href="/problems">
+              <div className="group p-6 rounded-xl bg-card/50 border border-border/50 backdrop-blur-sm hover:bg-card/70 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 cursor-pointer">
+                <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary mb-4 group-hover:scale-110 transition-transform duration-300">
+                  <Code2 className="w-8 h-8" />
+                </div>
+                <h3 className="text-xl font-semibold mb-2">Practice Problems</h3>
+                <p className="text-muted-foreground">
+                  Curated problems across all difficulty levels to sharpen your skills.
+                </p>
+              </div>
+            </Link>
+            <Link href="/contests">
+              <div className="group p-6 rounded-xl bg-card/50 border border-border/50 backdrop-blur-sm hover:bg-card/70 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 cursor-pointer">
+                <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary mb-4 group-hover:scale-110 transition-transform duration-300">
+                  <Trophy className="w-8 h-8" />
+                </div>
+                <h3 className="text-xl font-semibold mb-2">Live Contests</h3>
+                <p className="text-muted-foreground">
+                  Compete in real-time contests with students from MIT-ADT.
+                </p>
+              </div>
+            </Link>
             <Link href="/ratings">
               <div className="group p-6 rounded-xl bg-card/50 border border-border/50 backdrop-blur-sm hover:bg-card/70 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 cursor-pointer">
                 <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary mb-4 group-hover:scale-110 transition-transform duration-300">
@@ -84,26 +96,6 @@ export default function Home() {
           </div>
         </div>
       </section>
-    </div>
-  )
-}
-
-function FeatureCard({
-  icon,
-  title,
-  description,
-}: {
-  icon: React.ReactNode
-  title: string
-  description: string
-}) {
-  return (
-    <div className="group p-6 rounded-xl bg-card/50 border border-border/50 backdrop-blur-sm hover:bg-card/70 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 transition-all duration-300">
-      <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary mb-4 group-hover:scale-110 transition-transform duration-300">
-        {icon}
-      </div>
-      <h3 className="text-xl font-semibold mb-2">{title}</h3>
-      <p className="text-muted-foreground">{description}</p>
     </div>
   )
 }
