@@ -1,0 +1,744 @@
+// CodeForge v2 schema — see MASTER_PLAN.md §3 for full design context.
+// Stage 0 (Foundation) introduces the full data model. Tables that are not yet
+// populated by Stage 0 are scaffolded here so parallel Stage 1 agents can build
+// on top of a stable contract.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions", "fullTextSearch"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pg_trgm, vector]
+}
+
+// ─── Identity & access ────────────────────────────────────────────────────────
+
+enum Role {
+  USER
+  PROBLEM_SETTER
+  REVIEWER
+  MODERATOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  emailVerifiedAt DateTime?
+  username        String    @unique
+  passwordHash    String?
+  passwordAlgo    String    @default("argon2id") // "argon2id" | "bcrypt" (legacy)
+  displayName     String?
+  avatarUrl       String?
+  bio             String?
+  country         String?
+  organization    String?
+  oauthProvider   String?
+  oauthId         String?
+  totpSecret      String?
+  totpEnabled     Boolean   @default(false)
+  role            Role      @default(USER)
+  isBanned        Boolean   @default(false)
+  bannedReason    String?
+
+  // Arena profile
+  rating         Int       @default(1500)
+  maxRating      Int       @default(1500)
+  problemsSolved Int       @default(0)
+  contestsCount  Int       @default(0)
+  lastContestAt  DateTime?
+
+  // Aptitude profile
+  aptitudeTheta      Float @default(0)
+  aptitudeScaled     Int   @default(500)
+  aptitudeTestsTaken Int   @default(0)
+
+  // Engagement
+  currentStreak          Int       @default(0)
+  longestStreak          Int       @default(0)
+  streakFreezesAvailable Int       @default(2)
+  coins                  Int       @default(0)
+  lastActiveAt           DateTime?
+
+  // Login throttling counters (reset by /auth/login on success)
+  failedLoginCount      Int       @default(0)
+  lockedUntil           DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  problems         Problem[]            @relation("ProblemAuthor")
+  submissions      Submission[]
+  participations   ContestParticipant[]
+  ratingChanges    RatingChange[]
+  quizAttempts     QuizAttempt[]
+  badges           UserBadge[]
+  proctorEvents    ProctorEvent[]
+  auditLogs        AuditLog[]
+  sessions         UserSession[]
+  verificationTokens VerificationToken[]
+  passwordResets   PasswordResetToken[]
+
+  @@index([rating(sort: Desc)])
+  @@index([aptitudeScaled(sort: Desc)])
+}
+
+model UserSession {
+  id               String    @id @default(uuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String    @unique
+  fingerprint      String?
+  ipAddress        String
+  userAgent        String
+  createdAt        DateTime  @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  revokedReason    String?
+
+  @@index([userId])
+  @@index([refreshTokenHash])
+}
+
+model VerificationToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  purpose   String   // "email-verify" only for now; reset uses PasswordResetToken
+  expiresAt DateTime
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  ipAddress  String?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id])
+  action    String
+  target    String?
+  payload   Json     @default("{}")
+  ipAddress String?
+  requestId String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@index([actorId])
+}
+
+// ─── Arena: problems & tests ─────────────────────────────────────────────────
+
+enum ProblemJudgeMode {
+  STDIO
+  FUNCTIONAL
+  INTERACTIVE
+  OUTPUT_ONLY
+}
+
+enum ProblemScoring {
+  BINARY
+  ICPC_PENALTY
+  ATCODER_POINTS
+  IOI_SUBTASK
+}
+
+enum ProblemStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  PUBLISHED
+  RETIRED
+}
+
+enum Verdict {
+  PENDING
+  QUEUED
+  COMPILING
+  RUNNING
+  ACCEPTED
+  WRONG_ANSWER
+  TIME_LIMIT
+  MEMORY_LIMIT
+  RUNTIME_ERROR
+  COMPILATION_ERROR
+  OUTPUT_LIMIT
+  PRESENTATION_ERROR
+  JUDGE_FAILURE
+  SKIPPED
+}
+
+model Problem {
+  id      String @id @default(uuid())
+  slug    String @unique
+  version Int    @default(1)
+
+  title       String
+  statementMd String
+  inputFormat String
+  outputFormat String
+  constraints String
+  notes       String?
+
+  difficultyBand   String
+  rating           Int    @default(1500)
+  estimatedMinutes Int    @default(20)
+
+  judgeMode   ProblemJudgeMode @default(STDIO)
+  scoringMode ProblemScoring   @default(BINARY)
+
+  timeLimitMs          Int      @default(2000)
+  memoryLimitKb        Int      @default(262144)
+  outputLimitKb        Int      @default(64)
+  codeLimitKb          Int      @default(64)
+  perLanguageOverrides Json     @default("{}")
+  allowedLanguages     String[] @default([])
+
+  functionSignature Json?
+
+  checkerType    String  @default("token")
+  checkerCode    String?
+  checkerEpsilon Float?
+
+  interactorCode String?
+
+  tags        String[] @default([])
+  companyTags Json     @default("[]")
+  source      String?
+  license     String?
+
+  status      ProblemStatus @default(DRAFT)
+  isPublic    Boolean       @default(false)
+  publishedAt DateTime?
+
+  totalSubmissions Int   @default(0)
+  totalAccepted    Int   @default(0)
+  acceptanceRate   Float @default(0)
+  likes            Int   @default(0)
+  dislikes         Int   @default(0)
+
+  authorId       String
+  author         User     @relation("ProblemAuthor", fields: [authorId], references: [id])
+  coordinatorIds String[] @default([])
+  testerIds      String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tests              ProblemTest[]
+  subtasks           ProblemSubtask[]
+  starterCodes       StarterCode[]
+  referenceSolutions ReferenceSolution[]
+  hints              ProblemHint[]
+  editorial          Editorial?
+  submissions        Submission[]
+  contestProblems    ContestProblem[]
+  discussions        Discussion[]
+  dailyChallenges    DailyChallenge[]
+
+  @@index([status, isPublic])
+  @@index([rating])
+  @@index([difficultyBand])
+  @@index([authorId])
+}
+
+model ProblemTest {
+  id             String          @id @default(uuid())
+  problemId      String
+  problem        Problem         @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  subtaskId      String?
+  subtask        ProblemSubtask? @relation(fields: [subtaskId], references: [id])
+  orderIndex     Int
+  isSample       Boolean         @default(false)
+  inputBlobKey   String
+  outputBlobKey  String
+  inputSizeBytes Int             @default(0)
+  explanationMd  String?
+
+  @@index([problemId, orderIndex])
+}
+
+model ProblemSubtask {
+  id           String        @id @default(uuid())
+  problemId    String
+  problem      Problem       @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  label        String
+  points       Int
+  aggregation  String        @default("min")
+  dependsOnIds String[]      @default([])
+  tests        ProblemTest[]
+}
+
+model StarterCode {
+  problemId String
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  language  String
+  code      String
+
+  @@id([problemId, language])
+}
+
+model ReferenceSolution {
+  id             String  @id @default(uuid())
+  problemId      String
+  problem        Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  language       String
+  code           String
+  isJury         Boolean @default(true)
+  complexityNote String?
+}
+
+model ProblemHint {
+  id        String  @id @default(uuid())
+  problemId String
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  level     Int
+  textMd    String
+}
+
+model Editorial {
+  problemId   String    @id
+  problem     Problem   @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  bodyMd      String
+  publishedAt DateTime?
+  authorId    String?
+}
+
+// ─── Arena: contests & submissions ───────────────────────────────────────────
+
+enum ContestStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  ENDED
+  FINALIZED
+  CANCELLED
+}
+
+enum ContestFormat {
+  ICPC
+  IOI
+  ATCODER
+  CF_HACKS
+  MIXED
+}
+
+model Contest {
+  id                   String        @id @default(uuid())
+  slug                 String        @unique
+  title                String
+  description          String?
+  format               ContestFormat @default(ICPC)
+  isRated              Boolean       @default(false)
+  divisionMin          Int?
+  divisionMax          Int?
+  isPublic             Boolean       @default(true)
+  passcode             String?
+  status               ContestStatus @default(DRAFT)
+  startTime            DateTime
+  endTime              DateTime
+  freezeAtMinutes      Int?
+  registrationOpensAt  DateTime?
+  registrationClosesAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  problems      ContestProblem[]
+  participants  ContestParticipant[]
+  submissions   Submission[]
+  ratingChanges RatingChange[]
+  hacks         Hack[]
+
+  @@index([status, startTime])
+}
+
+model ContestProblem {
+  contestId String
+  contest   Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  problemId String
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  label     String
+  points    Int     @default(100)
+
+  @@id([contestId, problemId])
+}
+
+model ContestParticipant {
+  contestId      String
+  contest        Contest   @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  registeredAt   DateTime  @default(now())
+  isVirtual      Boolean   @default(false)
+  virtualStartAt DateTime?
+  score          Int       @default(0)
+  penalty        Int       @default(0)
+  rank           Int?
+  problemStates  Json      @default("{}")
+
+  @@id([contestId, userId])
+  @@index([contestId, rank])
+}
+
+model Submission {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  problemId   String
+  problem     Problem  @relation(fields: [problemId], references: [id])
+  contestId   String?
+  contest     Contest? @relation(fields: [contestId], references: [id])
+  language    String
+  codeBlobKey String
+  codeSize    Int      @default(0)
+
+  verdict            Verdict @default(PENDING)
+  testsPassed        Int     @default(0)
+  testsTotal         Int     @default(0)
+  pointsAwarded      Int     @default(0)
+  executionTimeMs    Int?
+  memoryUsedKb       Int?
+  compilerOutput     String?
+  judgeWorkerHost    String?
+  judgeKernelVersion String?
+
+  submittedAt DateTime  @default(now())
+  judgedAt    DateTime?
+
+  pasteCount        Int   @default(0)
+  pasteBytesTotal   Int   @default(0)
+  keystrokeStats    Json?
+  editorTimeSpentMs Int?
+
+  results                  SubmissionTestResult[]
+  similarityMatches        PlagiarismMatch[]      @relation("ToMatches")
+  similarityMatchedAgainst PlagiarismMatch[]      @relation("FromMatches")
+
+  @@index([userId, submittedAt(sort: Desc)])
+  @@index([problemId])
+  @@index([contestId])
+  @@index([verdict])
+}
+
+model SubmissionTestResult {
+  id           String     @id @default(uuid())
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  testIndex    Int
+  verdict      Verdict
+  timeMs       Int?
+  memoryKb     Int?
+  checkerMsg   String?
+
+  @@index([submissionId])
+}
+
+model RatingChange {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  contestId   String
+  contest     Contest  @relation(fields: [contestId], references: [id])
+  oldRating   Int
+  newRating   Int
+  delta       Int
+  rank        Int
+  performance Int?
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, contestId])
+  @@index([userId])
+}
+
+model Hack {
+  id                 String   @id @default(uuid())
+  contestId          String
+  contest            Contest  @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  hackerId           String
+  victimSubmissionId String
+  testBlobKey        String
+  succeeded          Boolean
+  createdAt          DateTime @default(now())
+}
+
+// ─── Aptitude: items, tests, sessions ─────────────────────────────────────────
+
+enum QuestionType {
+  MCQ_SINGLE
+  MCQ_MULTI
+  NUMERIC
+  FILL_IN_BLANK
+  TRUE_FALSE
+  MATCH_FOLLOWING
+  ORDERING
+  DESCRIPTIVE
+  CODE_SNIPPET
+  SELECT_OUTPUT
+  SQL_QUERY
+  DRAG_DROP
+  HOTSPOT
+}
+
+enum QuestionStatus {
+  DRAFT
+  REVIEWED
+  CALIBRATING
+  LIVE
+  RETIRED
+  SUPPRESSED
+}
+
+model QuizQuestion {
+  id               String   @id @default(uuid())
+  parentTemplateId String?
+  version          Int      @default(1)
+
+  type           QuestionType
+  topic          String
+  subtopic       String?
+  cognitiveLevel String?
+
+  stemMd  String
+  payload Json
+
+  difficultyBand   String
+  estimatedSeconds Int      @default(60)
+  tags             String[] @default([])
+  companyTagged    String[] @default([])
+  yearsSeen        Int[]    @default([])
+
+  attemptCount    Int   @default(0)
+  correctCount    Int   @default(0)
+  pValue          Float?
+  discrimination  Float?
+  pointBiserial   Float?
+  meanTimeSeconds Int?
+
+  irtA Float?
+  irtB Float?
+  irtC Float?
+
+  status     QuestionStatus @default(DRAFT)
+  authorId   String
+  reviewerId String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  responses QuizResponse[]
+  testItems QuizTestItem[]
+
+  @@index([status, topic])
+  @@index([difficultyBand])
+}
+
+model QuizTest {
+  id                  String   @id @default(uuid())
+  slug                String   @unique
+  title               String
+  description         String?
+  durationMinutes     Int
+  sections            Json
+  isAdaptive          Boolean  @default(false)
+  randomizeOptions    Boolean  @default(true)
+  randomizeOrder      Boolean  @default(true)
+  passCutoffScaled    Int?
+  sectionalCutoffsJson Json?
+  proctorLevel        String   @default("strict")
+  requireWebcam       Boolean  @default(true)
+  requireFullscreen   Boolean  @default(true)
+  requireScreenShare  Boolean  @default(false)
+  status              String   @default("draft")
+  createdAt           DateTime @default(now())
+
+  attempts QuizAttempt[]
+  items    QuizTestItem[]
+}
+
+model QuizTestItem {
+  testId     String
+  test       QuizTest     @relation(fields: [testId], references: [id], onDelete: Cascade)
+  questionId String
+  question   QuizQuestion @relation(fields: [questionId], references: [id])
+  section    String
+  orderIndex Int
+  weight     Float        @default(1)
+
+  @@id([testId, questionId])
+}
+
+model QuizAttempt {
+  id                    String    @id @default(uuid())
+  testId                String
+  test                  QuizTest  @relation(fields: [testId], references: [id])
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id])
+  seed                  String
+  startedAt             DateTime  @default(now())
+  submittedAt           DateTime?
+  durationActualSeconds Int?
+  rawScore              Float?
+  scaledScore           Int?
+  percentile            Float?
+  sectionalScores       Json      @default("{}")
+  thetaEstimate         Float?
+  suspicionScore        Int       @default(0)
+  reviewStatus          String    @default("pending")
+  reviewerId            String?
+  reviewerNotes         String?
+
+  responses     QuizResponse[]
+  proctorEvents ProctorEvent[]
+  screenChunks  ProctorRecording[]
+
+  @@index([userId])
+  @@index([testId])
+}
+
+model QuizResponse {
+  id               String       @id @default(uuid())
+  attemptId        String
+  attempt          QuizAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId       String
+  question         QuizQuestion @relation(fields: [questionId], references: [id])
+  presentedOrder   Int
+  optionOrderShown Int[]
+  answerPayload    Json
+  isCorrect        Boolean?
+  pointsAwarded    Float        @default(0)
+  markedForReview  Boolean      @default(false)
+  firstShownAt     DateTime
+  lastChangedAt    DateTime
+  totalTimeSeconds Int
+  changeCount      Int          @default(0)
+
+  @@index([attemptId])
+  @@index([questionId])
+}
+
+// ─── Proctoring & anti-cheat ─────────────────────────────────────────────────
+
+model ProctorEvent {
+  id           String       @id @default(uuid())
+  userId       String
+  user         User         @relation(fields: [userId], references: [id])
+  attemptId    String?
+  attempt      QuizAttempt? @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  submissionId String?
+  eventType    String
+  severity     String       @default("info")
+  weight       Int          @default(1)
+  payload      Json         @default("{}")
+  serverTs     DateTime     @default(now())
+  clientTs     DateTime?
+
+  @@index([userId])
+  @@index([attemptId])
+  @@index([serverTs])
+}
+
+model ProctorRecording {
+  id          String      @id @default(uuid())
+  attemptId   String
+  attempt     QuizAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  kind        String
+  s3Key       String
+  startTs     DateTime
+  endTs       DateTime
+  retainUntil DateTime
+}
+
+model PlagiarismMatch {
+  id               String     @id @default(uuid())
+  fromSubmissionId String
+  fromSubmission   Submission @relation("FromMatches", fields: [fromSubmissionId], references: [id])
+  toSubmissionId   String
+  toSubmission     Submission @relation("ToMatches", fields: [toSubmissionId], references: [id])
+  similarity       Float
+  algorithm        String
+  matchedFragments Json       @default("[]")
+  reviewStatus     String     @default("pending")
+  createdAt        DateTime   @default(now())
+
+  @@unique([fromSubmissionId, toSubmissionId, algorithm])
+  @@index([similarity])
+}
+
+// ─── Engagement & community ──────────────────────────────────────────────────
+
+model Badge {
+  id          String      @id @default(uuid())
+  slug        String      @unique
+  name        String
+  description String
+  iconUrl     String?
+  rarity      String      @default("common")
+  users       UserBadge[]
+}
+
+model UserBadge {
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badgeId   String
+  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+  awardedAt DateTime @default(now())
+
+  @@id([userId, badgeId])
+}
+
+model DailyChallenge {
+  date      DateTime @id @db.Date
+  problemId String
+  problem   Problem  @relation(fields: [problemId], references: [id])
+}
+
+model StudyPlan {
+  id           String   @id @default(uuid())
+  slug         String   @unique
+  title        String
+  description  String
+  problemIds   String[] @default([])
+  durationDays Int
+  isPublic     Boolean  @default(true)
+}
+
+model Discussion {
+  id        String       @id @default(uuid())
+  problemId String?
+  problem   Problem?     @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  contestId String?
+  authorId  String
+  title     String?
+  bodyMd    String
+  parentId  String?
+  parent    Discussion?  @relation("Replies", fields: [parentId], references: [id])
+  replies   Discussion[] @relation("Replies")
+  upvotes   Int          @default(0)
+  downvotes Int          @default(0)
+  isPinned  Boolean      @default(false)
+  isLocked  Boolean      @default(false)
+  isHidden  Boolean      @default(false)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([problemId])
+  @@index([parentId])
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@codeforge/proctor-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "lint": "echo 'proctor-sdk stub' && exit 0",
+    "typecheck": "echo 'proctor-sdk stub' && exit 0",
+    "test": "echo 'proctor-sdk stub' && exit 0"
+  }
+}

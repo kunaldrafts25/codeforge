@@ -1,0 +1,22 @@
+{
+  "name": "@codeforge/eslint-config",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.cjs",
+  "files": [
+    "index.cjs",
+    "react.cjs"
+  ],
+  "dependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.8.0",
+    "@typescript-eslint/parser": "^8.8.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-security": "^3.0.1",
+    "eslint-plugin-unicorn": "^56.0.0",
+    "eslint-plugin-react": "^7.37.1",
+    "eslint-plugin-react-hooks": "^4.6.2"
+  },
+  "peerDependencies": {
+    "eslint": "^8.57.0 || ^9.0.0"
+  }
+}

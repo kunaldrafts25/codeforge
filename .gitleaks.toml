@@ -1,0 +1,35 @@
+title = "Gitleaks Config for CodeForge"
+
+[allowlist]
+description = "Allow placeholder values in .env.example and documented historical secret references"
+paths = [
+  '''(.*?)\.env\.example$''',
+  '''docs/RUNBOOKS/credential-rotation\.md$''',
+  '''MASTER_PLAN\.md$''',
+]
+
+# Reject Supabase pooler URLs containing real credentials
+[[rules]]
+id = "supabase-pooler-url"
+description = "Detect Supabase pooler URLs with credentials"
+regex = '''postgres(?:ql)?://[^:]+:[^@\s]+@[a-z0-9-]+\.pooler\.supabase\.com'''
+tags = ["secret", "supabase"]
+
+[[rules]]
+id = "jwt-secret-pattern"
+description = "JWT_SECRET hardcoded value (not placeholder)"
+regex = '''JWT_(?:REFRESH_)?SECRET\s*=\s*["'](?!.*(?:placeholder|change|your|example|REPLACE_ME))[A-Za-z0-9+/=._-]{32,}["']'''
+tags = ["secret", "jwt"]
+
+[[rules]]
+id = "generic-password-in-url"
+description = "Password embedded in connection URL"
+regex = '''(?i)(postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis)://[^:/@\s]+:[^@\s]{8,}@[^\s'"]+'''
+tags = ["secret", "url"]
+[rules.allowlist]
+regexes = [
+  '''postgresql://postgres:postgres@localhost''',
+  '''postgresql://user:password@''',
+  '''REPLACE_ME''',
+  '''<password>''',
+]

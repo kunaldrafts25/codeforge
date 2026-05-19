@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommitTypeAll(chore)", "group:allNonMajor"],
+  "labels": ["dependencies"],
+  "rangeStrategy": "bump",
+  "schedule": ["before 7am on Monday"],
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["major"],
+      "labels": ["dependencies", "major"],
+      "automerge": false
+    },
+    {
+      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "automerge": true
+    },
+    {
+      "matchPackagePatterns": ["^@prisma/", "^prisma$"],
+      "groupName": "prisma"
+    },
+    {
+      "matchPackagePatterns": ["^fastify"],
+      "groupName": "fastify"
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"]
+  }
+}

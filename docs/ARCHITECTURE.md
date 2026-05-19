@@ -79,7 +79,7 @@ The split between **app workloads** (web, API, async workers — containerised o
 
 Both pillars use:
 
-- The same **User** record (with separate `arenaRating` and `aptitudeTheta` fields).
+- The same **User** record (with separate `rating` and `aptitudeTheta` fields).
 - The same **API gateway** (`apps/api/`), with route namespaces `/api/arena/*` and `/api/quiz/*`.
 - The same **judge worker** for code submissions. An Arena submission and the code section of an Aptitude test enter the same BullMQ queues; the judge is agnostic to context.
 - The same **proctoring SDK** (`packages/proctor-sdk/`). Aptitude tests use the `strict` or `high_stakes` profile; Arena contests typically use `light` or `off`.
@@ -149,7 +149,7 @@ OpenTelemetry SDK in every app → Tempo (trace), Loki (logs), Prometheus (metri
 4. The user's browser opens an SSE connection to `/api/arena/submissions/:id/stream`. The API subscribes to Redis pubsub channel `submission:<id>:events` and pipes events through.
 5. A judge worker picks the job. For each test case: runs in isolate, emits `event: testcase` to the Redis channel; the user's browser receives it and updates the UI.
 6. After the last test: worker writes the final verdict to the `Submission` row, emits `event: complete`, writes the audit record to S3.
-7. Async worker picks up `Submission.verdict = ACCEPTED` events, updates `User.arenaProblemsSolved`, increments daily streak, fires badge checks.
+7. Async worker picks up `Submission.verdict = ACCEPTED` events, updates `User.problemsSolved`, increments daily streak, fires badge checks.
 8. AST-hash index update happens asynchronously; if a high-similarity match is found, a `PlagiarismMatch` row is written and the reviewer queue surfaces it.
 
 ### 5.2 A contest start

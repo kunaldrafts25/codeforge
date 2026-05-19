@@ -1,0 +1,12 @@
+{
+  "name": "@codeforge/admin",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "echo 'admin stub — implemented by A3/B6' && exit 0",
+    "build": "echo 'admin stub' && exit 0",
+    "lint": "echo 'admin stub' && exit 0",
+    "typecheck": "echo 'admin stub' && exit 0",
+    "test": "echo 'admin stub' && exit 0"
+  }
+}

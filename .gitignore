@@ -1,12 +1,37 @@
-node_modules/
+node_modules
+.pnpm-store
+.turbo
+.next
+dist
+coverage
+out
+build
+
+# env
 .env
 .env.local
 .env.*.local
+
+# logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
 .DS_Store
-dist/
-build/
-.next/
-coverage/
+Thumbs.db
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# Test artifacts
 *.tsbuildinfo
-.turbo/
+next-env.d.ts
+
+# Prisma generated client
+packages/db/node_modules/.prisma
+*.timestamp-*.mjs

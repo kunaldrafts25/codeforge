@@ -1,3 +1,16 @@
-echo "🔍 Running pre-commit checks..."
-npx lint-staged
-echo "✅ Pre-commit checks passed!"
+#!/usr/bin/env sh
+echo "Running lint-staged..."
+pnpm exec lint-staged
+
+# Run gitleaks if installed; warn (do not block) if not present so devs can install at their own pace
+if command -v gitleaks >/dev/null 2>&1; then
+  echo "Running gitleaks on staged files..."
+  gitleaks protect --staged --redact --config .gitleaks.toml || {
+    echo "ERROR: gitleaks found potential secrets in staged changes."
+    echo "If this is a false positive, update .gitleaks.toml allowlist."
+    exit 1
+  }
+else
+  echo "WARNING: gitleaks not installed. Install via 'brew install gitleaks' or 'scoop install gitleaks'."
+  echo "Skipping secret scan (CI will block secrets at PR time)."
+fi

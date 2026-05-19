@@ -1,0 +1,11 @@
+node_modules
+.next
+.turbo
+dist
+coverage
+out
+build
+pnpm-lock.yaml
+package-lock.json
+**/.prisma/**
+**/generated/**

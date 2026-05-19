@@ -1,88 +1,107 @@
 name: CI
 
 on:
-  push:
-    branches: [main, develop]
   pull_request:
-    branches: [main, develop]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   NODE_VERSION: '20'
+  PNPM_VERSION: '9'
+  # Test-only secrets. Real secrets live in repo/environment secrets.
+  DATABASE_URL: postgresql://test:test@localhost:5432/test
+  JWT_SECRET: '0000000000000000000000000000000000000000000000000000000000000000'
+  JWT_REFRESH_SECRET: '1111111111111111111111111111111111111111111111111111111111111111'
+  CSRF_SECRET: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 
 jobs:
-  lint-and-build:
-    name: Lint & Build
+  lint:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: '9', run_install: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @codeforge/db db:generate
+      - run: pnpm exec turbo lint
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Install root dependencies
-        run: npm install
-
-      - name: Install frontend dependencies
-        working-directory: ./frontend
-        run: npm install
-
-      - name: Install backend dependencies
-        working-directory: ./backend
-        run: npm install
-
-      - name: Generate Prisma Client
-        working-directory: ./backend
-        run: npx prisma generate
-
-      - name: Lint frontend
-        working-directory: ./frontend
-        run: npm run lint
-
-      - name: Lint backend
-        working-directory: ./backend
-        run: npm run lint
-
-      - name: Build frontend
-        working-directory: ./frontend
-        run: npm run build
-
-      - name: Build backend
-        working-directory: ./backend
-        run: npm run build
-
-  type-check:
-    name: TypeScript Check
+  typecheck:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: '9', run_install: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @codeforge/db db:generate
+      - run: pnpm exec turbo typecheck
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with: { version: '9', run_install: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @codeforge/db db:generate
+      - run: pnpm exec turbo test
 
-      - name: Install dependencies
+      - name: Coverage gate on changed files in apps/api
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/coverage-gate.mjs
+
+  build:
+    needs: [lint, typecheck, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: '9', run_install: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @codeforge/db db:generate
+      - run: pnpm exec turbo build
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          config-path: .gitleaks.toml
+
+  e2e:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: '9', run_install: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - name: Skip e2e (no Playwright suites yet)
         run: |
-          npm install
-          cd frontend && npm install
-          cd ../backend && npm install
-
-      - name: Generate Prisma Client
-        working-directory: ./backend
-        run: npx prisma generate
-
-      - name: TypeScript check frontend
-        working-directory: ./frontend
-        run: npx tsc --noEmit
-
-      - name: TypeScript check backend
-        working-directory: ./backend
-        run: npx tsc --noEmit
+          echo "Playwright e2e suites land in Stage 1. CI placeholder green."

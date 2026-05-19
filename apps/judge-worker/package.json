@@ -1,0 +1,13 @@
+{
+  "name": "@codeforge/judge-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'judge-worker stub — implemented by A1' && exit 0",
+    "build": "echo 'judge-worker stub — implemented by A1' && exit 0",
+    "lint": "echo 'judge-worker stub' && exit 0",
+    "typecheck": "echo 'judge-worker stub' && exit 0",
+    "test": "echo 'judge-worker stub' && exit 0"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@codeforge/async-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'async-worker stub — implemented by A6/A8' && exit 0",
+    "build": "echo 'async-worker stub' && exit 0",
+    "lint": "echo 'async-worker stub' && exit 0",
+    "typecheck": "echo 'async-worker stub' && exit 0",
+    "test": "echo 'async-worker stub' && exit 0"
+  }
+}
