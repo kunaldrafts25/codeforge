@@ -67,7 +67,13 @@ function buildTests(slug: string, rows: { input: string; output: string; sample:
 }
 
 async function main() {
-  const adminPassword = await argon2.hash('admin123', { type: argon2.argon2id })
+  const seedPassword = process.env.SEED_ADMIN_PASSWORD
+  if (!seedPassword || seedPassword.length < 16) {
+    throw new Error(
+      'SEED_ADMIN_PASSWORD must be set to a unique password of at least 16 characters'
+    )
+  }
+  const adminPassword = await argon2.hash(seedPassword, { type: argon2.argon2id })
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@gfgmitadt.in' },
@@ -80,8 +86,8 @@ async function main() {
       passwordHash: adminPassword,
       passwordAlgo: 'argon2id',
       role: 'SUPER_ADMIN',
-      rating: 2000,
-      maxRating: 2000,
+      rating: 1500,
+      maxRating: 1500,
     },
   })
 
@@ -174,9 +180,9 @@ async function main() {
       description: 'First weekly contest of CodeForge! Test your skills.',
       startTime: tomorrow,
       endTime,
-      isRated: true,
-      isPublic: true,
-      status: 'SCHEDULED',
+      isRated: false,
+      isPublic: false,
+      status: 'DRAFT',
       format: 'ICPC',
       problems: {
         create: [
@@ -184,6 +190,78 @@ async function main() {
           { problemId: p1.id, label: 'B', points: 200 },
           { problemId: p3.id, label: 'C', points: 200 },
         ],
+      },
+    },
+  })
+
+  // Original demo items stay in draft until a different authorized reviewer
+  // checks the wording, answer keys and rights in the admin review screen.
+  const questions = [
+    {
+      id: '018f8148-2201-7630-9da3-055be4d71851',
+      type: 'MCQ_SINGLE' as const,
+      stemMd:
+        'A train travels 150 km in 3 hours at a constant speed. How far does it travel in 5 hours?',
+      payload: {
+        options: [
+          { id: 'a', text: '200 km' },
+          { id: 'b', text: '250 km' },
+          { id: 'c', text: '300 km' },
+          { id: 'd', text: '350 km' },
+        ],
+        correctIds: ['b'],
+        explanation: 'The speed is 50 km/h, so in 5 hours the train travels 250 km.',
+      },
+      topic: 'quantitative-reasoning',
+    },
+    {
+      id: '018f8148-2201-7630-9da3-055be4d71852',
+      type: 'TRUE_FALSE' as const,
+      stemMd: 'If every square is a rectangle, then every rectangle is a square.',
+      payload: { correct: false, explanation: 'A rectangle can have unequal adjacent sides.' },
+      topic: 'logical-reasoning',
+    },
+  ]
+  for (const q of questions) {
+    await prisma.quizQuestion.upsert({
+      where: { id: q.id },
+      update: {},
+      create: {
+        ...q,
+        authorId: 'seed:codeforge',
+        difficultyBand: 'L1',
+        status: 'DRAFT',
+      },
+    })
+  }
+  await prisma.quizTest.upsert({
+    where: { slug: 'reasoning-demo' },
+    update: {},
+    create: {
+      slug: 'reasoning-demo',
+      title: 'Reasoning fundamentals',
+      description: 'Two short questions on arithmetic and logic.',
+      durationMinutes: 10,
+      sections: [
+        {
+          name: 'Reasoning',
+          durationMinutes: 10,
+          numQuestions: 2,
+          scoringPolicy: { marksPerCorrect: 1, negativeMarks: 0 },
+        },
+      ],
+      isAdaptive: false,
+      proctorLevel: 'off',
+      requireWebcam: false,
+      requireFullscreen: false,
+      requireScreenShare: false,
+      status: 'draft',
+      items: {
+        create: questions.map((q, index) => ({
+          questionId: q.id,
+          section: 'Reasoning',
+          orderIndex: index,
+        })),
       },
     },
   })
