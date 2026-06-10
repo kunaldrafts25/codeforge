@@ -136,17 +136,49 @@ export const authRoutes: FastifyPluginAsyncZod = async app => {
       if (!row || row.consumedAt || row.expiresAt < new Date()) {
         throw badRequest('INVALID_TOKEN', 'Verification link is invalid or expired')
       }
-      await prisma.$transaction([
-        prisma.user.update({
-          where: { id: row.userId },
-          data: { emailVerifiedAt: new Date() },
-        }),
-        prisma.verificationToken.update({
-          where: { id: row.id },
+      await prisma.$transaction(async tx => {
+        const claimed = await tx.verificationToken.updateMany({
+          where: { id: row.id, consumedAt: null, expiresAt: { gt: new Date() } },
           data: { consumedAt: new Date() },
-        }),
-      ])
+        })
+        if (claimed.count !== 1)
+          throw badRequest('INVALID_TOKEN', 'Verification link is invalid or expired')
+        await tx.user.update({ where: { id: row.userId }, data: { emailVerifiedAt: new Date() } })
+      })
       return reply.send({ verified: true })
+    }
+  )
+
+  app.post(
+    '/verification/resend',
+    {
+      schema: {
+        tags: ['auth'],
+        body: RequestPasswordResetBody,
+        response: { 200: z.object({ ok: z.boolean() }) },
+      },
+      config: { rateLimit: { max: 5, timeWindow: '15 minutes' } },
+    },
+    async (request, reply) => {
+      const user = await prisma.user.findUnique({ where: { email: request.body.email } })
+      // Identical response for unknown and already verified addresses.
+      if (user && !user.emailVerifiedAt && !user.isBanned) {
+        const raw = newOpaqueToken()
+        await prisma.verificationToken.create({
+          data: {
+            userId: user.id,
+            tokenHash: hashToken(raw),
+            purpose: 'email-verify',
+            expiresAt: new Date(Date.now() + VERIFY_TTL_MS),
+          },
+        })
+        try {
+          await sendEmail({ ...buildVerifyEmail(raw), to: user.email })
+        } catch (err) {
+          request.log.error({ err }, 'failed to resend verification email')
+        }
+      }
+      return reply.send({ ok: true })
     }
   )
 
@@ -299,8 +331,16 @@ export const authRoutes: FastifyPluginAsyncZod = async app => {
         throw unauthorized('UNKNOWN_SESSION', 'Session not found')
       }
 
-      // Steal detection — revoked refresh re-presented → kill all sessions
+      // A near-simultaneous refresh from another tab can replay a just-rotated
+      // token. Reject it without treating that benign race as account theft.
       if (session.revokedAt) {
+        if (
+          session.revokedReason !== 'rotated' ||
+          Date.now() - session.revokedAt.getTime() < 30_000
+        ) {
+          clearAuthCookies(reply)
+          throw unauthorized('SESSION_REVOKED', 'Session is no longer active')
+        }
         await prisma.userSession.updateMany({
           where: { userId: session.userId, revokedAt: null },
           data: { revokedAt: new Date(), revokedReason: 'steal_detected' },
@@ -333,12 +373,15 @@ export const authRoutes: FastifyPluginAsyncZod = async app => {
       const newHash = hashToken(newRaw)
       const newJwt = signRefreshToken({ sub: user.id, jti: newRaw })
 
-      await prisma.$transaction([
-        prisma.userSession.update({
-          where: { id: session.id },
+      await prisma.$transaction(async tx => {
+        const claimed = await tx.userSession.updateMany({
+          where: { id: session.id, revokedAt: null, expiresAt: { gt: new Date() } },
           data: { revokedAt: new Date(), revokedReason: 'rotated' },
-        }),
-        prisma.userSession.create({
+        })
+        if (claimed.count !== 1) {
+          throw unauthorized('SESSION_REVOKED', 'Session is no longer active')
+        }
+        await tx.userSession.create({
           data: {
             userId: user.id,
             refreshTokenHash: newHash,
@@ -346,8 +389,8 @@ export const authRoutes: FastifyPluginAsyncZod = async app => {
             userAgent: request.headers['user-agent'] ?? 'unknown',
             expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
           },
-        }),
-      ])
+        })
+      })
 
       const access = signAccessToken({ sub: user.id, username: user.username, role: user.role })
       setAccessCookie(reply, access)
@@ -439,8 +482,14 @@ export const authRoutes: FastifyPluginAsyncZod = async app => {
         throw badRequest('INVALID_TOKEN', 'Reset link is invalid or expired')
       }
       const newHash = await hashPassword(password)
-      await prisma.$transaction([
-        prisma.user.update({
+      await prisma.$transaction(async tx => {
+        const claimed = await tx.passwordResetToken.updateMany({
+          where: { id: row.id, consumedAt: null, expiresAt: { gt: new Date() } },
+          data: { consumedAt: new Date() },
+        })
+        if (claimed.count !== 1)
+          throw badRequest('INVALID_TOKEN', 'Reset link is invalid or expired')
+        await tx.user.update({
           where: { id: row.userId },
           data: {
             passwordHash: newHash,
@@ -448,17 +497,12 @@ export const authRoutes: FastifyPluginAsyncZod = async app => {
             failedLoginCount: 0,
             lockedUntil: null,
           },
-        }),
-        prisma.passwordResetToken.update({
-          where: { id: row.id },
-          data: { consumedAt: new Date() },
-        }),
-        // Revoke all existing sessions on password change
-        prisma.userSession.updateMany({
+        })
+        await tx.userSession.updateMany({
           where: { userId: row.userId, revokedAt: null },
           data: { revokedAt: new Date(), revokedReason: 'password_reset' },
-        }),
-      ])
+        })
+      })
 
       await prisma.auditLog.create({
         data: {
