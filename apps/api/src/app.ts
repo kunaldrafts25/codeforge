@@ -19,6 +19,7 @@ import { loadConfig } from './config.js'
 import { logger } from './logger.js'
 import { handleError } from './errors.js'
 import { authPlugin } from './auth/plugin.js'
+import { CSRF_COOKIE } from './auth/cookies.js'
 import { authRoutes } from './routes/auth.js'
 import { userRoutes } from './routes/users.js'
 import { problemRoutes } from './routes/problems.js'
@@ -26,6 +27,7 @@ import { contestRoutes } from './routes/contests.js'
 import { submissionRoutes } from './routes/submissions.js'
 import { leaderboardRoutes } from './routes/leaderboard.js'
 import { adminRoutes } from './routes/admin.js'
+import { quizRoutes } from './routes/quiz/index.js'
 
 export async function buildApp() {
   const config = loadConfig()
@@ -64,7 +66,7 @@ export async function buildApp() {
   })
 
   await app.register(cors, {
-    origin: config.FRONTEND_URL,
+    origin: [config.FRONTEND_URL, config.ADMIN_URL],
     credentials: true,
   })
 
@@ -84,12 +86,13 @@ export async function buildApp() {
   // exposes the protection as `app.csrfProtection` (a fastify preHandler).
   // We selectively apply it to non-auth state-changing requests via a hook.
   await app.register(csrf, {
+    cookieKey: CSRF_COOKIE,
     cookieOpts: {
       signed: true,
       path: '/',
       sameSite: 'lax',
       secure: config.COOKIE_SECURE,
-      httpOnly: false,
+      httpOnly: true,
     },
     getToken: req =>
       (req.headers['x-csrf-token'] as string | undefined) ??
@@ -137,6 +140,7 @@ export async function buildApp() {
   await app.register(submissionRoutes, { prefix: '/api/submissions' })
   await app.register(leaderboardRoutes, { prefix: '/api/leaderboard' })
   await app.register(adminRoutes, { prefix: '/api/admin' })
+  await app.register(quizRoutes, { prefix: '/api/quiz' })
 
   app.addHook('onSend', async (request, reply) => {
     reply.header('x-request-id', request.id)
