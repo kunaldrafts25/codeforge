@@ -8,21 +8,29 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-// CSRF: read the non-httpOnly cf_csrf cookie set by the API and echo it as
-// the X-CSRF-Token header on every state-changing request.
-function readCookie(name: string): string | null {
-  if (typeof document === 'undefined') return null
-  const match = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'))
-  return match && match[1] ? decodeURIComponent(match[1]) : null
+let csrfToken: string | null = null
+let csrfInFlight: Promise<void> | null = null
+
+export async function ensureCsrf(): Promise<void> {
+  if (csrfToken) return
+  if (!csrfInFlight) {
+    csrfInFlight = api
+      .get<{ csrfToken: string }>('/auth/csrf')
+      .then(response => {
+        csrfToken = response.data.csrfToken
+      })
+      .finally(() => {
+        csrfInFlight = null
+      })
+  }
+  await csrfInFlight
 }
 
-api.interceptors.request.use(config => {
+api.interceptors.request.use(async config => {
   const method = (config.method ?? 'get').toLowerCase()
   if (['post', 'put', 'patch', 'delete'].includes(method)) {
-    const csrf = readCookie('cf_csrf')
-    if (csrf) {
-      config.headers.set('X-CSRF-Token', csrf)
-    }
+    await ensureCsrf()
+    config.headers.set('X-CSRF-Token', csrfToken)
   }
   return config
 })

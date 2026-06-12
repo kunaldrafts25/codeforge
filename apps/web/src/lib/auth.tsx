@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
-import { api } from './api'
+import { api, ensureCsrf } from './api'
 
 interface User {
   id: string
@@ -30,7 +30,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 async function bootstrapCsrf(): Promise<void> {
   try {
-    await api.get('/auth/csrf')
+    await ensureCsrf()
   } catch {
     // ignore — CSRF cookie may already be set
   }
