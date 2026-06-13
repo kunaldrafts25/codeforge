@@ -42,6 +42,9 @@ function VerifyInner() {
         <>
           <h1 className="text-2xl font-bold mb-2">Verification failed</h1>
           <p className="text-muted-foreground">{message}</p>
+          <Link href="/auth/check-inbox" className="inline-block mt-4 text-primary hover:underline">
+            Request a new link
+          </Link>
         </>
       )}
     </div>
