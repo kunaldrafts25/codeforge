@@ -30,7 +30,81 @@ importers:
         specifier: ^5.5.4
         version: 5.9.3
 
-  apps/admin: {}
+  apps/admin:
+    dependencies:
+      '@codeforge/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@codeforge/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      axios:
+        specifier: ^1.7.7
+        version: 1.16.1
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
+      isomorphic-dompurify:
+        specifier: ^2.16.0
+        version: 2.36.0
+      lucide-react:
+        specifier: ^0.451.0
+        version: 0.451.0(react@18.3.1)
+      markdown-it:
+        specifier: ^14.1.0
+        version: 14.1.1
+      next:
+        specifier: 14.2.14
+        version: 14.2.14(@opentelemetry/api@1.9.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
+      tailwind-merge:
+        specifier: ^2.5.3
+        version: 2.6.1
+      zustand:
+        specifier: ^5.0.0-rc.2
+        version: 5.0.13(@types/react@18.3.28)(react@18.3.1)
+    devDependencies:
+      '@codeforge/eslint-config':
+        specifier: workspace:*
+        version: link:../../packages/eslint-config
+      '@types/markdown-it':
+        specifier: ^14.1.2
+        version: 14.1.2
+      '@types/node':
+        specifier: ^20.16.10
+        version: 20.19.41
+      '@types/react':
+        specifier: ^18.3.11
+        version: 18.3.28
+      '@types/react-dom':
+        specifier: ^18.3.0
+        version: 18.3.7(@types/react@18.3.28)
+      autoprefixer:
+        specifier: ^10.4.20
+        version: 10.5.0(postcss@8.5.14)
+      eslint:
+        specifier: ^8.57.1
+        version: 8.57.1
+      eslint-config-next:
+        specifier: 14.2.14
+        version: 14.2.14(eslint@8.57.1)(typescript@5.9.3)
+      postcss:
+        specifier: ^8.4.47
+        version: 8.5.14
+      tailwindcss:
+        specifier: ^3.4.13
+        version: 3.4.19(tsx@4.22.2)(yaml@2.9.0)
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.2
+        version: 2.1.9(@types/node@20.19.41)(jsdom@25.0.1)
 
   apps/api:
     dependencies:
@@ -296,7 +370,14 @@ importers:
         specifier: ^56.0.0
         version: 56.0.1(eslint@8.57.1)
 
-  packages/proctor-sdk: {}
+  packages/proctor-sdk:
+    devDependencies:
+      '@codeforge/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
 
   packages/shared:
     dependencies:
