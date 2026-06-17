@@ -1,0 +1,122 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 220 20% 15%;
+  --card: 0 0% 100%;
+  --card-foreground: 220 20% 15%;
+  --primary: 160 100% 27%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 14% 96%;
+  --secondary-foreground: 220 20% 15%;
+  --muted: 220 14% 96%;
+  --muted-foreground: 220 9% 46%;
+  --accent: 160 30% 95%;
+  --accent-foreground: 160 100% 27%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 13% 91%;
+  --input: 220 13% 91%;
+  --ring: 160 100% 27%;
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: 222 47% 3%;
+  --foreground: 210 40% 98%;
+  --card: 222 47% 5%;
+  --card-foreground: 210 40% 98%;
+  --primary: 160 100% 27%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 217 33% 12%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217 33% 12%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 160 30% 10%;
+  --accent-foreground: 160 70% 50%;
+  --destructive: 0 63% 31%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 217 33% 15%;
+  --input: 217 33% 15%;
+  --ring: 160 100% 35%;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+}
+
+body {
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  font-family:
+    'Inter',
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.markdown-preview h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+.markdown-preview h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+.markdown-preview h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.markdown-preview p {
+  margin-bottom: 0.75rem;
+  line-height: 1.6;
+}
+.markdown-preview code {
+  background: hsl(var(--muted));
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9em;
+}
+.markdown-preview pre {
+  background: hsl(var(--muted));
+  padding: 0.75rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin-bottom: 0.75rem;
+}
+.markdown-preview pre code {
+  background: transparent;
+  padding: 0;
+}
+.markdown-preview ul,
+.markdown-preview ol {
+  padding-left: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+.markdown-preview blockquote {
+  border-left: 3px solid hsl(var(--border));
+  padding-left: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 0.75rem;
+}
