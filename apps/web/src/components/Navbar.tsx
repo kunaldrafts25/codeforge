@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 const navLinks = [
   { href: '/problems', label: 'Problems' },
   { href: '/contests', label: 'Contests' },
+  { href: '/aptitude', label: 'Aptitude' },
   { href: '/leaderboard', label: 'Leaderboard' },
 ]
 
