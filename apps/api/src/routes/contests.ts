@@ -2,7 +2,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { z } from 'zod'
 import { prisma } from '@codeforge/db'
 import { ContestListResponse, ContestSlugParam } from '@codeforge/shared'
-import { badRequest, notFound } from '../errors.js'
+import { notFound, HttpError } from '../errors.js'
 
 export const contestRoutes: FastifyPluginAsyncZod = async app => {
   app.get(
@@ -62,6 +62,7 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
               z.object({
                 label: z.string(),
                 problemId: z.string(),
+                slug: z.string(),
                 title: z.string(),
                 points: z.number(),
               })
@@ -75,13 +76,13 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
         where: { slug: request.params.slug },
         include: {
           problems: {
-            include: { problem: { select: { id: true, title: true } } },
+            include: { problem: { select: { id: true, slug: true, title: true } } },
             orderBy: { label: 'asc' },
           },
           _count: { select: { participants: true } },
         },
       })
-      if (!contest) throw notFound('CONTEST_NOT_FOUND', 'Contest not found')
+      if (!contest || !contest.isPublic) throw notFound('CONTEST_NOT_FOUND', 'Contest not found')
 
       let isRegistered = false
       if (request.user) {
@@ -105,6 +106,7 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
         problems: contest.problems.map(cp => ({
           label: cp.label,
           problemId: cp.problem.id,
+          slug: cp.problem.slug,
           title: cp.problem.title,
           points: cp.points,
         })),
@@ -112,8 +114,7 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
     }
   )
 
-  // Contest leaderboard — Stage 0 returns empty entries until A8 wires the
-  // rating engine + Redis ZSET writer.
+  // A standings response must never look valid until scoring is implemented.
   app.get(
     '/:slug/leaderboard',
     {
@@ -126,10 +127,10 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
     async request => {
       const exists = await prisma.contest.findUnique({
         where: { slug: request.params.slug },
-        select: { id: true },
+        select: { id: true, isPublic: true },
       })
-      if (!exists) throw notFound('CONTEST_NOT_FOUND', 'Contest not found')
-      return { entries: [] }
+      if (!exists || !exists.isPublic) throw notFound('CONTEST_NOT_FOUND', 'Contest not found')
+      throw new HttpError(503, 'CONTEST_SCORING_UNAVAILABLE', 'Contest standings are unavailable')
     }
   )
 
@@ -145,16 +146,12 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
     },
     async request => {
       const contest = await prisma.contest.findUnique({ where: { slug: request.params.slug } })
-      if (!contest) throw notFound('CONTEST_NOT_FOUND', 'Contest not found')
-      if (new Date() > contest.startTime) {
-        throw badRequest('REGISTRATION_CLOSED', 'Registration closed')
-      }
-      await prisma.contestParticipant.upsert({
-        where: { contestId_userId: { contestId: contest.id, userId: request.user!.id } },
-        create: { contestId: contest.id, userId: request.user!.id },
-        update: {},
-      })
-      return { ok: true }
+      if (!contest || !contest.isPublic) throw notFound('CONTEST_NOT_FOUND', 'Contest not found')
+      throw new HttpError(
+        503,
+        'CONTEST_UNAVAILABLE',
+        'Contest registration is unavailable until scoring is enabled'
+      )
     }
   )
 }

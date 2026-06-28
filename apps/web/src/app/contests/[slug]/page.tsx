@@ -5,7 +5,6 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { socket, type LeaderboardEntry } from '@/lib/socket'
-import { useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 import { logger } from '@/lib/logger'
 import { Clock, Trophy, ChevronRight } from 'lucide-react'
@@ -13,6 +12,7 @@ import { Clock, Trophy, ChevronRight } from 'lucide-react'
 interface ContestProblem {
   label: string
   problemId: string
+  slug: string
   title: string
   points: number
   solved?: boolean
@@ -35,7 +35,6 @@ interface ContestLeaderboardEntry extends LeaderboardEntry {
 
 export default function ContestPage() {
   const { slug } = useParams()
-  const { user } = useAuth()
   const [contest, setContest] = useState<Contest | null>(null)
   const [leaderboard, setLeaderboard] = useState<ContestLeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -54,19 +53,9 @@ export default function ContestPage() {
     }
   }, [slug])
 
-  const fetchLeaderboard = useCallback(async () => {
-    try {
-      const res = await api.get(`/contests/${slug}/leaderboard`)
-      setLeaderboard(res.data.entries || [])
-    } catch (err) {
-      logger.error('Failed to fetch leaderboard:', err)
-    }
-  }, [slug])
-
   useEffect(() => {
     fetchContest()
-    fetchLeaderboard()
-  }, [fetchContest, fetchLeaderboard])
+  }, [fetchContest])
 
   useEffect(() => {
     if (!contest) return
@@ -108,15 +97,6 @@ export default function ContestPage() {
     }
   }, [contest, status])
 
-  const handleRegister = async () => {
-    try {
-      await api.post(`/contests/${slug}/register`)
-      setContest(prev => (prev ? { ...prev, isRegistered: true } : null))
-    } catch (err) {
-      logger.error('Failed to register:', err)
-    }
-  }
-
   const formatTimeLeft = (ms: number) => {
     const hours = Math.floor(ms / (1000 * 60 * 60))
     const mins = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60))
@@ -146,14 +126,9 @@ export default function ContestPage() {
             <h1 className="text-3xl font-bold mb-2">{contest.title}</h1>
             <p className="text-muted-foreground">{contest.description}</p>
           </div>
-          {user && !contest.isRegistered && status === 'upcoming' && (
-            <button
-              onClick={handleRegister}
-              className="px-6 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:opacity-90"
-            >
-              Register
-            </button>
-          )}
+          <p role="status" className="text-sm text-muted-foreground">
+            Contest registration and scoring are unavailable.
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-6 text-sm">
@@ -210,7 +185,7 @@ export default function ContestPage() {
               key={problem.problemId}
               href={
                 status === 'running' || status === 'ended'
-                  ? `/problems/${problem.problemId}?contest=${contest.id}`
+                  ? `/problems/${problem.slug}?contest=${contest.id}`
                   : '#'
               }
               className={cn(
@@ -257,7 +232,7 @@ export default function ContestPage() {
                     colSpan={4 + contest.problems.length}
                     className="px-4 py-8 text-center text-muted-foreground"
                   >
-                    No submissions yet
+                    Standings are unavailable while contest scoring is paused.
                   </td>
                 </tr>
               ) : (
