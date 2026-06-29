@@ -260,7 +260,7 @@ export default function ProblemPage() {
 
           <button
             onClick={() => void handleSubmit()}
-            disabled={submitting}
+            disabled
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition disabled:opacity-50"
           >
             {submitting ? (
@@ -274,6 +274,11 @@ export default function ProblemPage() {
             )}
           </button>
         </div>
+
+        <p role="status" className="px-4 py-2 text-sm text-muted-foreground border-b border-border">
+          Code submissions are paused until isolated judging is available. You can still read
+          problems and write code locally.
+        </p>
 
         <div className="flex-1 p-4">
           <CodeEditor

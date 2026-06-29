@@ -96,7 +96,10 @@ export const problemRoutes: FastifyPluginAsyncZod = async app => {
         },
       })
 
-      if (!problem || (!problem.isPublic && request.user?.role === 'USER')) {
+      const canPreview =
+        request.user &&
+        ['ADMIN', 'SUPER_ADMIN', 'PROBLEM_SETTER', 'REVIEWER'].includes(request.user.role)
+      if (!problem || ((!problem.isPublic || problem.status !== 'PUBLISHED') && !canPreview)) {
         throw notFound('PROBLEM_NOT_FOUND', 'Problem not found')
       }
 
