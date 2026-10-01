@@ -9,14 +9,17 @@ import { ShieldCheck, FileText, LogOut } from 'lucide-react'
 
 const links = [
   { href: '/admin/quiz-review', label: 'Quiz review', icon: FileText, minRole: 'REVIEWER' },
+  { href: '/admin/problems', label: 'Coding problems', icon: FileText, minRole: 'PROBLEM_SETTER' },
 ]
 
 export function AdminShell({
   children,
   requireMinRole = 'PROBLEM_SETTER',
+  allowedRoles,
 }: {
   children: React.ReactNode
   requireMinRole?: string
+  allowedRoles?: string[]
 }) {
   const { user, loading, logout } = useAuth()
   const router = useRouter()
@@ -28,15 +31,19 @@ export function AdminShell({
       router.replace('/login')
       return
     }
-    if (!hasRole(user, requireMinRole)) {
+    if (!hasRole(user, requireMinRole) || (allowedRoles && !allowedRoles.includes(user.role))) {
       router.replace('/forbidden')
     }
-  }, [user, loading, router, requireMinRole])
+  }, [user, loading, router, requireMinRole, allowedRoles])
 
   if (loading) {
     return <div className="p-8 text-muted-foreground">Loading…</div>
   }
-  if (!user || !hasRole(user, requireMinRole)) {
+  if (
+    !user ||
+    !hasRole(user, requireMinRole) ||
+    (allowedRoles && !allowedRoles.includes(user.role))
+  ) {
     return null
   }
 
@@ -50,6 +57,12 @@ export function AdminShell({
         <nav className="flex-1 p-2 space-y-1">
           {links.map(link => {
             if (!hasRole(user, link.minRole)) return null
+            if (
+              link.href === '/admin/problems' &&
+              !['PROBLEM_SETTER', 'REVIEWER', 'ADMIN', 'SUPER_ADMIN'].includes(user.role)
+            ) {
+              return null
+            }
             const Icon = link.icon
             const active = pathname.startsWith(link.href)
             return (

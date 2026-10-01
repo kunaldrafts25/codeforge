@@ -1,324 +1,339 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { Markdown } from '@codeforge/ui'
+import { Admin, PRACTICE_LANGUAGES, type PracticeSignature } from '@codeforge/shared'
+import dynamic from 'next/dynamic'
 import { api } from '@/lib/api'
-import { socket } from '@/lib/socket'
-import { CodeEditor } from '@/components/CodeEditor'
-import { getDifficultyBandColor, cn } from '@/lib/utils'
-import { logger } from '@/lib/logger'
-import { Send, Clock, Database, CheckCircle, XCircle, AlertCircle, Loader2 } from 'lucide-react'
-import type { AxiosError } from 'axios'
+import { useAuth } from '@/lib/auth'
 
-interface Problem {
+type Problem = {
   id: string
   title: string
   statementMd: string
+  constraints: string
   inputFormat: string
   outputFormat: string
-  constraints: string
-  difficultyBand: string
-  rating: number
-  timeLimitMs: number
-  memoryLimitKb: number
+  languages: (typeof PRACTICE_LANGUAGES)[number][]
+  mode: string
+  signature: PracticeSignature | null
   samples: { input: string; output: string; explanation: string | null }[]
-  tags: string[]
+  starters: Partial<Record<string, string>>
+  hints: string[]
+  editorial: string
 }
-
-interface SubmissionResult {
-  verdict?: string
-  testCasesPassed?: number
-  totalTestCases?: number
-  executionTime?: number
-  memoryUsed?: number
-  message?: string
+type Job = {
+  id: string
+  language: string
+  source?: string
+  state: string
+  verdict: string | null
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
 }
-
-const languages = [
-  { id: 'cpp', name: 'C++ 17' },
-  { id: 'c', name: 'C' },
-  { id: 'python', name: 'Python 3' },
-  { id: 'java', name: 'Java' },
-  { id: 'javascript', name: 'JavaScript' },
-]
-
+const Markdown = dynamic(() => import('@codeforge/ui').then(m => m.Markdown), { ssr: false })
 const defaultCode: Record<string, string> = {
-  cpp: '#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    \n    return 0;\n}',
-  c: '#include <stdio.h>\n\nint main() {\n    \n    return 0;\n}',
-  python: '',
-  java: 'import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        \n    }\n}',
-  javascript: 'const readline = require("readline");\n\n',
+  cpp: '#include <iostream>\nint main() {\n  return 0;\n}\n',
+  python: '# Read stdin and write stdout.\n',
+  java: 'public class Main {\n  public static void main(String[] args) {\n  }\n}\n',
+  javascript: '// Read stdin and write stdout.\n',
 }
 
 export default function ProblemPage() {
   const { slug } = useParams()
+  const { user, loading: authLoading } = useAuth()
   const [problem, setProblem] = useState<Problem | null>(null)
+  const [language, setLanguage] = useState<(typeof PRACTICE_LANGUAGES)[number]>('cpp')
+  const [code, setCode] = useState('')
+  const [loadedDraftKey, setLoadedDraftKey] = useState<string | null>(null)
+  const [draftNotice, setDraftNotice] = useState('')
+  const [customInput, setCustomInput] = useState('')
+  const [error, setError] = useState('')
+  const [availability, setAvailability] = useState('Checking execution availability…')
+  const [history, setHistory] = useState<Job[]>([])
+  const [job, setJob] = useState<Job | null>(null)
+  const [historyPage, setHistoryPage] = useState(1)
+  const [historyPages, setHistoryPages] = useState(0)
+  const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(true)
-  const [language, setLanguage] = useState('cpp')
-  const [code, setCode] = useState(defaultCode.cpp ?? '')
-  const [submitting, setSubmitting] = useState(false)
-  const [result, setResult] = useState<SubmissionResult | null>(null)
-  const [activeTab, setActiveTab] = useState<'description' | 'submissions'>('description')
+  const jobId = job?.id
+  const jobState = job?.state
+  const draftKey =
+    user && problem ? `codeforge:practice:${user.id}:${problem.id}:${language}` : null
+  const starter = useCallback(() => {
+    if (problem?.starters[language]) return problem.starters[language]!
+    if (problem?.mode === 'FUNCTIONAL' && problem.signature)
+      return Admin.generateStarter(problem.signature, language)
+    return defaultCode[language] ?? ''
+  }, [problem, language])
 
-  const fetchProblem = useCallback(async () => {
-    try {
-      const res = await api.get(`/problems/${slug as string}`)
-      setProblem(res.data)
-    } catch (err) {
-      logger.error('Failed to fetch problem:', err)
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    let current = true
+    void (async () => {
+      try {
+        const status = await api.get('/practice/capabilities')
+        if (current) setAvailability(status.data.reason)
+        let p: Problem
+        try {
+          p = (await api.get<Problem>(`/practice/problems/${String(slug)}`)).data
+        } catch (e) {
+          if ((e as { response?: { status?: number } }).response?.status !== 404) throw e
+          const legacy = (await api.get(`/problems/${String(slug)}`)).data
+          p = {
+            ...legacy,
+            mode: legacy.judgeMode,
+            signature: null,
+            languages: [...PRACTICE_LANGUAGES],
+            starters: {},
+            hints: [],
+            editorial: '',
+          }
+        }
+        if (current) {
+          setProblem(p)
+          setLanguage(p.languages[0] ?? 'cpp')
+        }
+      } catch {
+        if (current) setError('Problem or sample data is unavailable. Please try again later.')
+      } finally {
+        if (current) setLoading(false)
+      }
+    })()
+    return () => {
+      current = false
     }
   }, [slug])
 
   useEffect(() => {
-    void fetchProblem()
-  }, [fetchProblem])
-
-  useEffect(() => {
-    setCode(defaultCode[language] ?? '')
-  }, [language])
-
-  const handleSubmit = async () => {
-    if (!problem || submitting) return
-
-    setSubmitting(true)
-    setResult(null)
-
+    if (!problem || authLoading) return
+    setLoadedDraftKey(null)
     try {
-      const res = await api.post('/submissions', {
-        problemId: problem.id,
-        language,
-        code,
-      })
-
-      const submissionId = res.data.id as string
-      socket.connect()
-      setTimeout(() => {
-        socket.trackSubmission(submissionId, data => {
-          setResult(data)
-          if (data.verdict && data.verdict !== 'pending' && data.verdict !== 'running') {
-            setSubmitting(false)
-          }
-        })
-      }, 100)
-
-      // Fallback polling — kept until A1 ships the SSE-based judge worker.
-      const pollForResult = async () => {
-        for (let i = 0; i < 60; i++) {
-          await new Promise(r => setTimeout(r, 2000))
-          try {
-            const subRes = await api.get(`/submissions/${submissionId}`)
-            const sub = subRes.data
-            if (sub.verdict !== 'PENDING' && sub.verdict !== 'RUNNING') {
-              setResult({
-                verdict: String(sub.verdict).toLowerCase(),
-                testCasesPassed: sub.testsPassed,
-                totalTestCases: sub.testsTotal,
-                executionTime: sub.executionTimeMs ?? undefined,
-                memoryUsed: sub.memoryUsedKb ?? undefined,
-              })
-              setSubmitting(false)
-              return
-            }
-          } catch (pollErr) {
-            logger.error('Poll error:', pollErr)
-          }
-        }
-        setResult({ verdict: 'error', message: 'Judging timed out' })
-        setSubmitting(false)
-      }
-
-      void pollForResult()
-    } catch (err) {
-      const error = err as AxiosError<{ error?: { message: string } }>
-      setResult({
-        verdict: 'error',
-        message: error.response?.data?.error?.message ?? 'Submission failed',
-      })
-      setSubmitting(false)
+      const saved = draftKey ? localStorage.getItem(draftKey) : null
+      setCode(saved ?? starter())
+      setDraftNotice(
+        user
+          ? 'Drafts are saved in this browser for your account, problem and language.'
+          : 'Sign in to preserve your draft in this browser.'
+      )
+    } catch {
+      setCode(starter())
+      setDraftNotice('Browser storage is unavailable. Copy your code before leaving.')
     }
-  }
+    setLoadedDraftKey(draftKey)
+  }, [draftKey, starter, problem, authLoading, user])
+  useEffect(() => {
+    if (!draftKey || loadedDraftKey !== draftKey) return
+    try {
+      localStorage.setItem(draftKey, code)
+    } catch {
+      setDraftNotice('Draft could not be saved. Copy your code before leaving.')
+    }
+  }, [code, draftKey, loadedDraftKey])
 
-  if (loading) {
+  const loadHistory = useCallback(async () => {
+    if (!user) {
+      setHistory([])
+      return
+    }
+    try {
+      const r = await api.get('/practice/history', { params: { page: historyPage, limit: 20 } })
+      setHistory(r.data.rows)
+      setHistoryPages(r.data.totalPages)
+    } catch {
+      setNotice('History could not be loaded. Use Refresh history to retry.')
+    }
+  }, [user, historyPage])
+  useEffect(() => {
+    void loadHistory()
+  }, [loadHistory])
+  const openJob = useCallback(async (id: string) => {
+    try {
+      const r = await api.get<Job>(`/practice/jobs/${id}`)
+      setJob(r.data)
+      const url = new URL(window.location.href)
+      url.searchParams.set('job', id)
+      window.history.replaceState(null, '', url)
+    } catch {
+      setNotice('This job is unavailable or belongs to another account.')
+    }
+  }, [])
+  useEffect(() => {
+    if (!user) return
+    const id = new URL(window.location.href).searchParams.get('job')
+    if (id && /^[0-9a-f-]{36}$/i.test(id)) void openJob(id)
+  }, [user, openJob])
+  useEffect(() => {
+    if (!jobId || !jobState || !['QUEUED', 'COMPILING', 'RUNNING'].includes(jobState)) return
+    let requests = 0
+    const timer = setInterval(() => {
+      if (++requests > 30) {
+        clearInterval(timer)
+        setNotice('Automatic updates paused. Refresh the job to check its server status.')
+        return
+      }
+      void openJob(jobId)
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [jobId, jobState, openJob])
+
+  if (loading)
     return (
-      <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
+      <p className="p-8" role="status">
+        Loading problem…
+      </p>
     )
-  }
-
-  if (!problem) {
+  if (!problem)
     return (
-      <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
-        <p className="text-muted-foreground">Problem not found</p>
-      </div>
+      <p className="p-8" role="alert">
+        {error}
+      </p>
     )
-  }
-
   return (
-    <div className="flex flex-col lg:flex-row min-h-[calc(100vh-4rem)]">
-      <div className="lg:w-1/2 p-6 overflow-y-auto border-r border-border">
-        <div className="mb-4">
-          <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-2xl font-bold">{problem.title}</h1>
-            <span
-              className={cn('text-sm font-medium', getDifficultyBandColor(problem.difficultyBand))}
+    <main className="max-w-6xl mx-auto p-4 space-y-6">
+      <h1 className="text-3xl font-bold">{problem.title}</h1>
+      <p role="status" className="rounded border border-amber-500 p-3">
+        {availability}
+      </p>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section aria-label="Problem statement" className="min-w-0 space-y-4">
+          <Markdown md={problem.statementMd} />
+          <h2 className="text-xl font-semibold">Constraints</h2>
+          <Markdown md={problem.constraints} />
+          <h2 className="text-xl font-semibold">Input and output</h2>
+          <Markdown md={problem.inputFormat} />
+          <Markdown md={problem.outputFormat} />
+          {problem.samples.map((s, i) => (
+            <section key={i} className="border rounded p-3 space-y-2">
+              <h3>Sample {i + 1}</h3>
+              <p>Input</p>
+              <pre className="overflow-auto">{s.input}</pre>
+              <p>Expected output</p>
+              <pre className="overflow-auto">{s.output}</pre>
+              {s.explanation && <Markdown md={s.explanation} />}
+            </section>
+          ))}
+          {problem.hints.map((h, i) => (
+            <details key={i}>
+              <summary>Hint {i + 1}</summary>
+              <Markdown md={h} />
+            </details>
+          ))}
+          {problem.editorial && (
+            <details>
+              <summary>Editorial</summary>
+              <Markdown md={problem.editorial} />
+            </details>
+          )}
+        </section>
+        <section aria-label="Code draft" className="min-w-0 space-y-3">
+          <label className="block">
+            Language
+            <select
+              aria-label="Language"
+              className="block border p-2 bg-background"
+              value={language}
+              onChange={e => {
+                setLoadedDraftKey(null)
+                setLanguage(e.target.value as typeof language)
+              }}
             >
-              {problem.difficultyBand[0]?.toUpperCase() ?? ''}
-              {problem.difficultyBand.slice(1)}
-            </span>
-          </div>
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <Clock className="w-4 h-4" /> {problem.timeLimitMs}ms
-            </span>
-            <span className="flex items-center gap-1">
-              <Database className="w-4 h-4" /> {Math.round(problem.memoryLimitKb / 1024)}MB
-            </span>
-          </div>
-        </div>
-
-        <div className="flex gap-4 border-b border-border mb-4">
+              {problem.languages.map(l => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            Code
+            <textarea
+              aria-label="Code"
+              spellCheck={false}
+              className="block w-full min-h-80 border p-3 font-mono bg-background"
+              value={code}
+              onChange={e => setCode(e.target.value)}
+              maxLength={65536}
+            />
+          </label>
+          <p role="status">{draftNotice}</p>
           <button
-            onClick={() => setActiveTab('description')}
-            className={cn(
-              'py-2 px-4 -mb-px border-b-2 transition-colors',
-              activeTab === 'description'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            )}
+            className="border rounded p-2"
+            onClick={() => {
+              if (window.confirm('Replace this draft with starter code?')) setCode(starter())
+            }}
           >
-            Description
+            Reset to starter
           </button>
-          <button
-            onClick={() => setActiveTab('submissions')}
-            className={cn(
-              'py-2 px-4 -mb-px border-b-2 transition-colors',
-              activeTab === 'submissions'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            )}
-          >
-            Submissions
-          </button>
-        </div>
-
-        {activeTab === 'description' && (
-          <div className="prose prose-sm dark:prose-invert max-w-none">
-            <Markdown md={problem.statementMd} />
-
-            <h3>Input Format</h3>
-            <p>{problem.inputFormat}</p>
-
-            <h3>Output Format</h3>
-            <p>{problem.outputFormat}</p>
-
-            <h3>Constraints</h3>
-            <pre className="bg-muted p-4 rounded-lg">{problem.constraints}</pre>
-
-            {problem.samples.map((sample, idx) => (
-              <div key={idx}>
-                <h3>Sample {idx + 1}</h3>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div>
-                    <h4 className="text-sm font-medium mb-1">Input</h4>
-                    <pre className="bg-muted p-3 rounded-lg text-sm">{sample.input}</pre>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium mb-1">Output</h4>
-                    <pre className="bg-muted p-3 rounded-lg text-sm">{sample.output}</pre>
-                  </div>
-                </div>
-                {sample.explanation && (
-                  <p className="text-sm text-muted-foreground mt-2">{sample.explanation}</p>
-                )}
-              </div>
-            ))}
+          <label className="block">
+            Custom input
+            <textarea
+              aria-label="Custom input"
+              className="block w-full border p-2 bg-background"
+              maxLength={65536}
+              value={customInput}
+              onChange={e => setCustomInput(e.target.value)}
+            />
+          </label>
+          <div className="flex flex-wrap gap-3">
+            <button disabled className="border rounded p-2 opacity-60">
+              Run sample
+            </button>
+            <button disabled className="border rounded p-2 opacity-60">
+              Run custom input
+            </button>
+            <button disabled className="border rounded p-2 opacity-60">
+              Submit
+            </button>
           </div>
-        )}
-
-        {activeTab === 'submissions' && (
-          <div className="text-muted-foreground text-sm">Your submissions will appear here.</div>
-        )}
+          <p>Run and submit will open after isolated execution is verified.</p>
+        </section>
       </div>
-
-      <div className="lg:w-1/2 flex flex-col">
-        <div className="p-4 border-b border-border flex items-center justify-between">
-          <select
-            value={language}
-            onChange={e => setLanguage(e.target.value)}
-            className="px-3 py-1.5 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            {languages.map(lang => (
-              <option key={lang.id} value={lang.id}>
-                {lang.name}
-              </option>
-            ))}
-          </select>
-
-          <button
-            onClick={() => void handleSubmit()}
-            disabled
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition disabled:opacity-50"
-          >
-            {submitting ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" /> Judging...
-              </>
-            ) : (
-              <>
-                <Send className="w-4 h-4" /> Submit
-              </>
-            )}
-          </button>
-        </div>
-
-        <p role="status" className="px-4 py-2 text-sm text-muted-foreground border-b border-border">
-          Code submissions are paused until isolated judging is available. You can still read
-          problems and write code locally.
-        </p>
-
-        <div className="flex-1 p-4">
-          <CodeEditor
-            value={code}
-            onChange={setCode}
-            language={language}
-            height="calc(100vh - 16rem)"
-          />
-        </div>
-
-        {result && (
-          <div
-            className={cn(
-              'p-4 border-t border-border',
-              result.verdict === 'accepted'
-                ? 'bg-green-500/10'
-                : result.verdict === 'wrong_answer'
-                  ? 'bg-red-500/10'
-                  : result.verdict === 'time_limit'
-                    ? 'bg-yellow-500/10'
-                    : 'bg-muted'
-            )}
-          >
-            <div className="flex items-center gap-2">
-              {result.verdict === 'accepted' && <CheckCircle className="w-5 h-5 text-green-500" />}
-              {result.verdict === 'wrong_answer' && <XCircle className="w-5 h-5 text-red-500" />}
-              {result.verdict === 'time_limit' && (
-                <AlertCircle className="w-5 h-5 text-yellow-500" />
-              )}
-              {result.verdict === 'running' && <Loader2 className="w-5 h-5 animate-spin" />}
-              <span className="font-medium capitalize">{result.verdict?.replace('_', ' ')}</span>
-              {result.testCasesPassed !== undefined && (
-                <span className="text-sm text-muted-foreground ml-2">
-                  ({result.testCasesPassed}/{result.totalTestCases} passed)
-                </span>
-              )}
+      <section aria-label="Submission history" className="space-y-3">
+        <h2 className="text-xl font-semibold">Your practice history</h2>
+        {!user ? (
+          <p>Sign in to view your private history.</p>
+        ) : (
+          <>
+            <button className="border p-2" onClick={() => void loadHistory()}>
+              Refresh history
+            </button>
+            {!history.length && <p>No practice jobs on this page.</p>}
+            <ul>
+              {history.map(j => (
+                <li key={j.id}>
+                  <button className="underline p-2" onClick={() => void openJob(j.id)}>
+                    {j.language} · {j.verdict ?? j.state} · {new Date(j.createdAt).toLocaleString()}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="flex gap-3">
+              <button disabled={historyPage <= 1} onClick={() => setHistoryPage(p => p - 1)}>
+                Previous
+              </button>
+              <span>Page {historyPage}</span>
+              <button
+                disabled={historyPage >= historyPages}
+                onClick={() => setHistoryPage(p => p + 1)}
+              >
+                Next
+              </button>
             </div>
-          </div>
+          </>
         )}
-      </div>
-    </div>
+        {notice && <p role="status">{notice}</p>}
+        {job && (
+          <article className="border p-3 space-y-2">
+            <p>Server status: {job.verdict ?? job.state}</p>
+            <p>{job.startedAt ? 'Execution started.' : 'Waiting for execution.'}</p>
+            <button className="underline" onClick={() => void openJob(job.id)}>
+              Refresh job
+            </button>
+            <pre className="overflow-auto">{job.source}</pre>
+          </article>
+        )}
+      </section>
+    </main>
   )
 }

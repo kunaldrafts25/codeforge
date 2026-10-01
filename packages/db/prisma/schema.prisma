@@ -82,6 +82,10 @@ model User {
   sessions         UserSession[]
   verificationTokens VerificationToken[]
   passwordResets   PasswordResetToken[]
+  practiceVersions PracticeVersion[] @relation("PracticeAuthor")
+  practiceReviews  PracticeVersion[] @relation("PracticeReviewer")
+  practiceJobs     PracticeJob[]
+  practiceSolves   PracticeSolve[]
 
   @@index([rating(sort: Desc)])
   @@index([aptitudeScaled(sort: Desc)])
@@ -253,6 +257,8 @@ model Problem {
   contestProblems    ContestProblem[]
   discussions        Discussion[]
   dailyChallenges    DailyChallenge[]
+  practiceVersions   PracticeVersion[]
+  practiceSolves     PracticeSolve[]
 
   @@index([status, isPublic])
   @@index([rating])
@@ -450,6 +456,94 @@ model SubmissionTestResult {
   checkerMsg   String?
 
   @@index([submissionId])
+}
+
+// Phase 2: immutable private packages and durable execution generations.
+// Admission remains disabled until the isolated runtime is verified.
+model PracticeVersion {
+  id          String        @id @default(uuid())
+  problemId   String
+  problem     Problem       @relation(fields: [problemId], references: [id])
+  number      Int
+  authorId    String
+  author      User          @relation("PracticeAuthor", fields: [authorId], references: [id])
+  package     Json
+  packageHash String
+  status      String        @default("DRAFT")
+  validation  Json?
+  reviewerId  String?
+  reviewer    User?         @relation("PracticeReviewer", fields: [reviewerId], references: [id])
+  rightsBasis String?
+  createdAt   DateTime      @default(now())
+  approvedAt  DateTime?
+  publishedAt DateTime?
+  withdrawnAt DateTime?
+  jobs        PracticeJob[]
+
+  @@unique([problemId, number])
+  @@index([problemId, status])
+}
+
+model PracticeJob {
+  id             String          @id @default(uuid())
+  ownerId        String
+  owner          User            @relation(fields: [ownerId], references: [id])
+  versionId      String
+  version        PracticeVersion @relation(fields: [versionId], references: [id])
+  kind           String
+  language       String
+  source         String
+  sourceHash     String
+  input          String?
+  requestHash    String
+  idempotencyKey String
+  policy         Json
+  state          String          @default("QUEUED")
+  generation     Int             @default(1)
+  originJobId    String?
+  originJob      PracticeJob?    @relation("PracticeRejudge", fields: [originJobId], references: [id])
+  rejudges       PracticeJob[]   @relation("PracticeRejudge")
+  attempt        Int             @default(0)
+  fence          Int             @default(0)
+  leaseOwner     String?
+  leaseExpiresAt DateTime?
+  availableAt    DateTime        @default(now())
+  verdict        String?
+  publicResult   Json?
+  privateResult  Json?
+  failureCode    String?
+  createdAt      DateTime        @default(now())
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  outbox         PracticeOutbox?
+
+  @@unique([ownerId, idempotencyKey])
+  @@unique([originJobId, generation])
+  @@index([state, availableAt])
+  @@index([ownerId, createdAt(sort: Desc)])
+}
+
+model PracticeOutbox {
+  id          String      @id @default(uuid())
+  jobId       String      @unique
+  job         PracticeJob @relation(fields: [jobId], references: [id])
+  attempts    Int         @default(0)
+  availableAt DateTime    @default(now())
+  deliveredAt DateTime?
+  createdAt   DateTime    @default(now())
+
+  @@index([deliveredAt, availableAt])
+}
+
+model PracticeSolve {
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id])
+  problemId String
+  problem   Problem  @relation(fields: [problemId], references: [id])
+  jobId     String
+  updatedAt DateTime @updatedAt
+
+  @@id([ownerId, problemId])
 }
 
 model RatingChange {

@@ -1,0 +1,34 @@
+{
+  "title": "Add two integers",
+  "statementMd": "Return the sum of two integers.",
+  "constraints": "Each input is between -100 and 100.",
+  "inputFormat": "Two integers",
+  "outputFormat": "One integer",
+  "difficultyBand": "easy",
+  "tags": ["math"],
+  "mode": "STDIO",
+  "signature": null,
+  "languages": ["cpp", "python", "java", "javascript"],
+  "limits": { "timeMs": 1000, "memoryKb": 262144, "outputKb": 64 },
+  "checker": { "kind": "token", "absolute": 0, "relative": 0 },
+  "cases": [
+    { "input": "1 2", "output": "3", "sample": true, "explanation": "Add both integers." },
+    {
+      "input": "-5 7",
+      "output": "PRIVATE_EXPECTED_2",
+      "sample": false,
+      "explanation": "PRIVATE_EXPLANATION"
+    }
+  ],
+  "references": [
+    {
+      "language": "python",
+      "code": "PRIVATE_REFERENCE_NOT_EXECUTED",
+      "complexity": "O(1) fixture only"
+    }
+  ],
+  "starters": {},
+  "hints": ["Add the integers."],
+  "editorial": "Addition.",
+  "rightsBasis": "Original fixture authored for disposable development tests."
+}

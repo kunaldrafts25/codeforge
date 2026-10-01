@@ -28,6 +28,7 @@ import { submissionRoutes } from './routes/submissions.js'
 import { leaderboardRoutes } from './routes/leaderboard.js'
 import { adminRoutes } from './routes/admin.js'
 import { quizRoutes } from './routes/quiz/index.js'
+import { practiceRoutes } from './routes/practice.js'
 
 export async function buildApp() {
   const config = loadConfig()
@@ -140,6 +141,7 @@ export async function buildApp() {
   await app.register(leaderboardRoutes, { prefix: '/api/leaderboard' })
   await app.register(adminRoutes, { prefix: '/api/admin' })
   await app.register(quizRoutes, { prefix: '/api/quiz' })
+  await app.register(practiceRoutes, { prefix: '/api/practice' })
 
   app.addHook('onSend', async (request, reply) => {
     reply.header('x-request-id', request.id)

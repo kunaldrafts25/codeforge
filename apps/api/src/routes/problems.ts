@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import type { Prisma } from '@codeforge/db'
 import { prisma } from '@codeforge/db'
@@ -11,15 +9,12 @@ import {
 } from '@codeforge/shared'
 import { notFound } from '../errors.js'
 import { loadConfig } from '../config.js'
+import { readSample } from '../practice/sample-store.js'
 
 const config = loadConfig()
 
 function readBlob(key: string): string {
-  try {
-    return readFileSync(join(config.SEED_BLOB_ROOT, key), 'utf8')
-  } catch {
-    return ''
-  }
+  return readSample(config.SEED_BLOB_ROOT, key)
 }
 
 export const problemRoutes: FastifyPluginAsyncZod = async app => {

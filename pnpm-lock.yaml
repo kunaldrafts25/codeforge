@@ -220,7 +220,14 @@ importers:
 
   apps/async-worker: {}
 
-  apps/judge-worker: {}
+  apps/judge-worker:
+    devDependencies:
+      '@types/node':
+        specifier: 20.19.41
+        version: 20.19.41
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
 
   apps/web:
     dependencies:
@@ -316,7 +323,23 @@ importers:
         specifier: ^2.1.2
         version: 2.1.9(@types/node@20.19.41)(jsdom@25.0.1)
 
-  packages/checker-lib: {}
+  packages/checker-lib:
+    devDependencies:
+      '@codeforge/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@types/node':
+        specifier: 20.19.41
+        version: 20.19.41
+      eslint:
+        specifier: ^8.57.1
+        version: 8.57.1
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.2
+        version: 2.1.9(@types/node@20.19.41)(jsdom@25.0.1)
 
   packages/db:
     dependencies:

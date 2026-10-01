@@ -30,7 +30,7 @@ export const submissionRoutes: FastifyPluginAsyncZod = async app => {
     async request => {
       const submission = await prisma.submission.findUnique({ where: { id: request.params.id } })
       if (!submission) throw notFound('SUBMISSION_NOT_FOUND', 'Submission not found')
-      if (submission.userId !== request.user!.id && request.user!.role === 'USER') {
+      if (submission.userId !== request.user!.id) {
         throw forbidden('FORBIDDEN', 'Access denied')
       }
       return {

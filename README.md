@@ -28,4 +28,6 @@ pnpm build
 pnpm exec playwright test
 ```
 
-CI provisions PostgreSQL, deploys migrations, rehearses backup and restore, seeds a draft, and runs a Playwright staff and candidate journey. The legacy judge and checker worker scripts remain placeholders because coding submissions are closed during Phase 1. A passing local run does not certify production deployment; hosted CI and security-incident closure remain required before an external pilot.
+CI provisions PostgreSQL, deploys migrations, rehearses backup and restore, seeds a draft, and runs Playwright staff and candidate journeys. Phase 2 adds immutable practice packages, authoring, private projections, draft persistence, bounded checkers, and durable job persistence. Candidate execution, reference validation, publication, and rejudge admission remain disabled until a dedicated Linux sandbox and real worker are verified. The worker preflight cannot enable execution merely because a runtime is installed.
+
+On Windows, `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-phase2.ps1` creates fresh test credentials and disposable databases, verifies additive migration compatibility and synthetic job recovery, runs all static/browser checks, and rehearses restore. Synthetic lifecycle results do not prove compiler correctness or isolation. The unresolved historical credential incident remains a launch blocker; a passing test run does not resolve it.

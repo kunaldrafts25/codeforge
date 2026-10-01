@@ -88,23 +88,21 @@ jobs:
         with:
           config-path: .gitleaks.toml
 
+  phase2-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: '9.0.0', run_install: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - name: Fresh-credential PostgreSQL lifecycle and restore
+        run: bash scripts/verify-phase2-data.sh
+
   e2e:
     runs-on: ubuntu-latest
     needs: [build]
-    services:
-      postgres:
-        image: pgvector/pgvector:0.8.6-pg16-bookworm
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U test -d test"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -113,36 +111,6 @@ jobs:
         with: { node-version: '20', cache: 'pnpm' }
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @codeforge/db db:generate
-      - name: Prepare disposable pilot credentials
-        run: |
-          echo "SEED_ADMIN_PASSWORD=$(openssl rand -hex 20)" >> "$GITHUB_ENV"
-          echo "SEED_REVIEWER_PASSWORD=$(openssl rand -hex 20)" >> "$GITHUB_ENV"
-      - name: Deploy migrations and seed disposable database
-        env:
-          SEED_DISPOSABLE_DATABASE: '1'
-        run: |
-          pnpm --filter @codeforge/db db:migrate:deploy
-          pnpm --filter @codeforge/db db:seed
       - run: pnpm exec playwright install --with-deps chromium
-      - name: Real browser and PostgreSQL pilot journey
-        env:
-          EMAIL_PROVIDER: sandbox
-          MAIL_SANDBOX_URL: http://127.0.0.1:8025
-          FRONTEND_URL: http://localhost:3000
-          ADMIN_URL: http://localhost:3001
-          PUBLIC_API_URL: http://localhost:5000
-          NEXT_PUBLIC_API_URL: http://localhost:5000/api
-        run: pnpm exec playwright test
-      - name: Rehearse backup and restore with browser data
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
-          export PGPASSWORD=test
-          pg_dump -h localhost -U test -d test -Fc --no-owner --no-privileges -f "$RUNNER_TEMP/phase1.dump"
-          createdb -h localhost -U test restore_test
-          pg_restore -h localhost -U test -d restore_test --no-owner --no-privileges --exit-on-error "$RUNNER_TEMP/phase1.dump"
-          psql "$DATABASE_URL" -At -v ON_ERROR_STOP=1 -f scripts/phase1-restore-fingerprint.sql > "$RUNNER_TEMP/source-digest.txt"
-          psql 'postgresql://test:test@localhost:5432/restore_test' -At -v ON_ERROR_STOP=1 -f scripts/phase1-restore-fingerprint.sql > "$RUNNER_TEMP/restore-digest.txt"
-          cmp "$RUNNER_TEMP/source-digest.txt" "$RUNNER_TEMP/restore-digest.txt"
-          cat "$RUNNER_TEMP/source-digest.txt"
-          sha256sum "$RUNNER_TEMP/phase1.dump"
+      - name: Fresh-credential browser, PostgreSQL and restore journeys
+        run: bash scripts/verify-phase2-data.sh --browser

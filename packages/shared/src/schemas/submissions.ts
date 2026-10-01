@@ -1,14 +1,17 @@
 import { z } from 'zod'
+import { PracticeLanguage } from './practice.js'
 
-export const CreateSubmissionBody = z.object({
-  problemId: z.string().uuid(),
-  language: z.enum(['cpp', 'c', 'python', 'java', 'javascript']),
-  code: z
-    .string()
-    .min(1)
-    .max(64 * 1024),
-  contestId: z.string().uuid().optional(),
-})
+export const CreateSubmissionBody = z
+  .object({
+    problemId: z.string().uuid(),
+    language: PracticeLanguage,
+    code: z
+      .string()
+      .min(1)
+      .max(64 * 1024),
+    contestId: z.never().optional(),
+  })
+  .strict()
 
 export const SubmissionIdParam = z.object({
   id: z.string().uuid(),

@@ -4,10 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "echo 'judge-worker stub — implemented by A1' && exit 0",
-    "build": "echo 'judge-worker stub — implemented by A1' && exit 0",
-    "lint": "echo 'judge-worker stub' && exit 0",
-    "typecheck": "echo 'judge-worker stub' && exit 0",
-    "test": "echo 'judge-worker stub' && exit 0"
+    "dev": "node src/preflight.mjs",
+    "preflight": "node src/preflight.mjs",
+    "build": "tsc",
+    "lint": "node --check src/preflight.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test src/preflight.test.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.41",
+    "typescript": "^5.5.4"
   }
 }

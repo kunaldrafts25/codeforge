@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg16-bookworm@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b
+    environment:
+      POSTGRES_USER: phase2
+      POSTGRES_PASSWORD: ${PHASE2_POSTGRES_PASSWORD:?Fresh disposable password required}
+      POSTGRES_DB: bootstrap
+    ports:
+      - '127.0.0.1::5432'
+    tmpfs:
+      - /var/lib/postgresql/data:size=512m
+    mem_limit: 512m
+    cpus: 1
+    pids_limit: 128
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U phase2 -d bootstrap']
+      interval: 2s
+      timeout: 5s
+      retries: 30

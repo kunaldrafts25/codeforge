@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { PracticeLanguage, PracticeSignature } from '../schemas/practice.js'
 
 // Local, minimal signature DSL until A2's packages/shared/function-sig ships.
 // Once it does, this file should be a re-export shim.
@@ -96,13 +97,14 @@ function renderType(t: SigTypeValue, lang: 'cpp' | 'java' | 'python' | 'js'): st
 }
 
 export function generateStarter(sig: FunctionSignature, language: string): string {
-  const lang = language.toLowerCase()
-  if (lang === 'cpp' || lang === 'c++') {
+  PracticeSignature.parse(sig)
+  const lang = PracticeLanguage.parse(language)
+  if (lang === 'cpp') {
     const params = sig.params.map(p => `${renderType(p.type, 'cpp')} ${p.name}`).join(', ')
     const ret = renderType(sig.returns, 'cpp')
     const stub =
       ret === 'void' ? '        // TODO: implement\n' : `        return {}; // TODO: implement\n`
-    return `class Solution {\npublic:\n    ${ret} ${sig.name}(${params}) {\n${stub}    }\n};\n`
+    return `#include <string>\n#include <vector>\nusing namespace std;\n\nclass Solution {\npublic:\n    ${ret} ${sig.name}(${params}) {\n${stub}    }\n};\n`
   }
   if (lang === 'java') {
     const params = sig.params.map(p => `${renderType(p.type, 'java')} ${p.name}`).join(', ')
@@ -113,12 +115,12 @@ export function generateStarter(sig: FunctionSignature, language: string): strin
         : `        // TODO: implement\n        return ${defaultJava(sig.returns)};\n`
     return `class Solution {\n    public ${ret} ${sig.name}(${params}) {\n${body}    }\n}\n`
   }
-  if (lang === 'python' || lang === 'python3') {
+  if (lang === 'python') {
     const params = sig.params.map(p => `${p.name}: ${renderType(p.type, 'python')}`).join(', ')
     const ret = renderType(sig.returns, 'python')
-    return `class Solution:\n    def ${sig.name}(self, ${params}) -> ${ret}:\n        # TODO: implement\n        pass\n`
+    return `class Solution:\n    def ${sig.name}(self${params ? ', ' + params : ''}) -> ${ret}:\n        # TODO: implement\n        pass\n`
   }
-  if (lang === 'javascript' || lang === 'js' || lang === 'typescript' || lang === 'ts') {
+  if (lang === 'javascript') {
     const params = sig.params.map(p => p.name).join(', ')
     return `/**\n * @param {...} args\n */\nfunction ${sig.name}(${params}) {\n  // TODO: implement\n}\n`
   }

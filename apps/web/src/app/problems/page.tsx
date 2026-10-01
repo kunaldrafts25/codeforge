@@ -23,6 +23,8 @@ interface FetchParams {
   page: number
   limit: number
   difficulty?: string
+  search?: string
+  tag?: string
 }
 
 const difficulties = ['All', 'Easy', 'Medium', 'Hard', 'Expert']
@@ -31,6 +33,9 @@ export default function ProblemsPage() {
   const [problems, setProblems] = useState<Problem[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [tag, setTag] = useState('')
+  const [error, setError] = useState('')
   const [difficulty, setDifficulty] = useState('All')
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -40,24 +45,34 @@ export default function ProblemsPage() {
       setLoading(true)
       const params: FetchParams = { page, limit: 20 }
       if (difficulty !== 'All') params.difficulty = difficulty.toLowerCase()
+      if (searchQuery.trim()) params.search = searchQuery.trim()
+      if (tag.trim()) params.tag = tag.trim()
 
       const res = await api.get('/problems', { params })
       setProblems(res.data.problems)
       setTotalPages(res.data.totalPages)
+      setError('')
     } catch (err) {
       logger.error('Failed to fetch problems:', err)
+      setError('The problem catalog could not be loaded. Try changing the filter or reload.')
     } finally {
       setLoading(false)
     }
-  }, [page, difficulty])
+  }, [page, difficulty, searchQuery, tag])
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(search)
+      setPage(1)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [search])
 
   useEffect(() => {
     void fetchProblems()
   }, [fetchProblems])
 
-  const filteredProblems = problems.filter(p =>
-    p.title.toLowerCase().includes(search.toLowerCase())
-  )
+  const filteredProblems = problems
 
   const labelFor = (band: string): string =>
     band.length > 0 ? band[0]!.toUpperCase() + band.slice(1) : band
@@ -65,17 +80,21 @@ export default function ProblemsPage() {
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <p role="status" className="mb-5 rounded border border-amber-500 p-3">
-        Coding submissions are unavailable during the aptitude pilot.
+        Coding execution is awaiting isolation verification. You can browse problems and preserve
+        code drafts.
       </p>
+      {error && <p role="alert">{error}</p>}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
         <h1 className="text-3xl font-bold">Problems</h1>
 
-        <div className="flex gap-4">
+        <div className="flex flex-wrap gap-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="text"
               placeholder="Search problems..."
+              aria-label="Search problems"
+              maxLength={128}
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="pl-10 pr-4 py-2 rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring w-64"
@@ -83,8 +102,12 @@ export default function ProblemsPage() {
           </div>
 
           <select
+            aria-label="Difficulty"
             value={difficulty}
-            onChange={e => setDifficulty(e.target.value)}
+            onChange={e => {
+              setDifficulty(e.target.value)
+              setPage(1)
+            }}
             className="px-4 py-2 rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
           >
             {difficulties.map(d => (
@@ -93,6 +116,17 @@ export default function ProblemsPage() {
               </option>
             ))}
           </select>
+          <input
+            aria-label="Filter by tag"
+            placeholder="Tag"
+            maxLength={64}
+            className="border rounded p-2 bg-background"
+            value={tag}
+            onChange={e => {
+              setTag(e.target.value)
+              setPage(1)
+            }}
+          />
         </div>
       </div>
 
