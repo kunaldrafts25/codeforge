@@ -281,6 +281,10 @@ def execute(cid, root, command, stdin, cpu_ms, wall_ms, soft_kb, output_bytes):
             poll.unregister(conn)
             conn.close()
             api('POST', '/containers/' + cid + '/kill?signal=SIGKILL')
+            final = metrics(root)
+            peak = max(peak, final['memoryBytes']); cpu = max(cpu, final['cpuUs'] - begin['cpuUs'])
+            if final['oomKills'] > begin['oomKills']:
+                raise RuntimeError('Sandbox cgroup OOM: attribution unavailable')
         elif buffered:
             raise RuntimeError('Truncated exec stream')
         else:
