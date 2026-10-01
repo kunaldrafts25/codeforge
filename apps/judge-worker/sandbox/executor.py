@@ -192,6 +192,9 @@ assert (cg/'pids.max').read_text().strip()=='63'
 nonce=sys.argv[1];command=sys.argv[2:]
 assert command and (shutil.which(command[0]) or pathlib.Path(command[0]).is_file())
 sys.stderr.write('_FORGE_READY:'+nonce+'\\n');sys.stderr.flush()
+# The controller acknowledges the verified bootstrap before candidate code
+# can start. Use an unbuffered one-byte read so candidate stdin is unchanged.
+assert os.read(0,1)==b'\\x01'
 try: os.execvp(command[0],command)
 except OSError:
  sys.stderr.write('_FORGE_BOOT_FAILURE:'+nonce+'\\n');sys.stderr.flush();sys.exit(255)
@@ -220,10 +223,9 @@ def execute(cid, root, command, stdin, cpu_ms, wall_ms, soft_kb, output_bytes):
     if not header.startswith(b'HTTP/1.1 101 '): raise RuntimeError('Exec stream upgrade failed')
     conn.setblocking(False)
     poll = selectors.DefaultSelector()
-    pending = stdin.encode()
+    pending = b'\x01' + stdin.encode()
     sent = 0
-    poll.register(conn, selectors.EVENT_READ | (selectors.EVENT_WRITE if pending else 0))
-    if not pending: conn.shutdown(socket.SHUT_WR)
+    poll.register(conn, selectors.EVENT_READ)
     output = {'stdout': bytearray(), 'stderr': bytearray()}
     buffered = bytearray()
     reason = None
@@ -236,7 +238,10 @@ def execute(cid, root, command, stdin, cpu_ms, wall_ms, soft_kb, output_bytes):
             m = metrics(root)
             peak = max(peak, m['memoryBytes']); cpu = max(cpu, m['cpuUs'] - begin['cpuUs'])
             if m['oomKills'] > begin['oomKills']: raise RuntimeError('Sandbox cgroup OOM: attribution unavailable')
-            if peak > soft_kb * 1024: reason = 'MEMORY_LIMIT'
+            if not bootstrap_ready:
+                if peak > soft_kb * 1024 or cpu > 5000000 or time.monotonic() - start > 10:
+                    raise RuntimeError('Trusted bootstrap resource bound exceeded')
+            elif peak > soft_kb * 1024: reason = 'MEMORY_LIMIT'
             elif cpu > cpu_ms * 1000 or (time.monotonic() - start) * 1000 > wall_ms: reason = 'TIME_LIMIT'
             if reason: break
             for _, events in poll.select(0.01):
@@ -261,6 +266,10 @@ def execute(cid, root, command, stdin, cpu_ms, wall_ms, soft_kb, output_bytes):
                         if not bootstrap_ready and len(output['stderr']) >= len(ready_marker):
                             if not output['stderr'].startswith(ready_marker): raise RuntimeError('Trusted bootstrap refused execution')
                             del output['stderr'][:len(ready_marker)]; bootstrap_ready = True
+                            # No candidate execution is possible before this
+                            # acknowledgment. Snapshot the whole cgroup now.
+                            begin = metrics(root); cpu = 0; start = time.monotonic()
+                            poll.modify(conn, selectors.EVENT_READ | selectors.EVENT_WRITE)
                         if bootstrap_ready and ('_FORGE_BOOT_FAILURE:' + nonce).encode() in output['stderr']:
                             raise RuntimeError('Trusted bootstrap artifact failure')
                         if sum(map(len, output.values())) > output_bytes: reason = 'OUTPUT_LIMIT'; break

@@ -65,6 +65,15 @@ for (const fixture of [
     }
   )
   assert.equal(result.verdict, fixture.expected, fixture.name)
+  const first = result.privateEvidence.cases[0]!
+  if (fixture.name === 'cpu-limit') {
+    assert(first.timeMs >= fixture.timeMs)
+    assert(first.wallMs < fixture.timeMs * 3 + 1000)
+  }
+  if (fixture.name === 'wall-limit') {
+    assert(first.wallMs >= fixture.timeMs * 3 + 1000)
+    assert(first.timeMs < fixture.timeMs)
+  }
   console.log(
     JSON.stringify({
       event: 'limits.passed',
@@ -73,6 +82,7 @@ for (const fixture of [
       verdict: result.verdict,
       timeMs: result.timeMs,
       memoryKb: result.memoryKb,
+      wallMs: first.wallMs,
     })
   )
 }
