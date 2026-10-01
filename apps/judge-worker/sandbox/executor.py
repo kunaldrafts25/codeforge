@@ -280,11 +280,13 @@ def execute(cid, root, command, stdin, cpu_ms, wall_ms, soft_kb, output_bytes):
             # Otherwise daemon attach backpressure can block kill acknowledgement.
             poll.unregister(conn)
             conn.close()
-            api('POST', '/containers/' + cid + '/kill?signal=SIGKILL')
+            # Snapshot immediately before termination: Docker removes the
+            # stopped sandbox's cgroup, so post-kill reads are not reliable.
             final = metrics(root)
             peak = max(peak, final['memoryBytes']); cpu = max(cpu, final['cpuUs'] - begin['cpuUs'])
             if final['oomKills'] > begin['oomKills']:
                 raise RuntimeError('Sandbox cgroup OOM: attribution unavailable')
+            api('POST', '/containers/' + cid + '/kill?signal=SIGKILL')
         elif buffered:
             raise RuntimeError('Truncated exec stream')
         else:
