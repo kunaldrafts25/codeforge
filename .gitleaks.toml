@@ -18,8 +18,11 @@ tags = ["secret", "supabase"]
 [[rules]]
 id = "jwt-secret-pattern"
 description = "JWT_SECRET hardcoded value (not placeholder)"
-regex = '''JWT_(?:REFRESH_)?SECRET\s*=\s*["'](?!.*(?:placeholder|change|your|example|REPLACE_ME))[A-Za-z0-9+/=._-]{32,}["']'''
+regex = '''JWT_(?:REFRESH_)?SECRET\s*=\s*["'][A-Za-z0-9+/=._-]{32,}["']'''
 tags = ["secret", "jwt"]
+[rules.allowlist]
+regexTarget = "match"
+regexes = ['''(?i)(placeholder|change|your|example|REPLACE_ME)''']
 
 [[rules]]
 id = "generic-password-in-url"
