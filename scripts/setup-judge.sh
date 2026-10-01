@@ -15,6 +15,11 @@ docker save -o "$archive" codeforge-judge-toolchain:p2
 docker cp "$archive" "$FORGE_JUDGE_ENGINE:/toolchain.tar"
 docker exec "$FORGE_JUDGE_ENGINE" docker load -i /toolchain.tar
 export FORGE_TOOLCHAIN_IMAGE="$(docker exec "$FORGE_JUDGE_ENGINE" docker image inspect --format '{{.Id}}' codeforge-judge-toolchain:p2)"
-pnpm --filter @codeforge/judge-worker run doctor
+if ! pnpm --filter @codeforge/judge-worker run doctor; then
+  # Trusted image/command only: diagnose startup without candidate code,
+  # application credentials, container Env or private job payloads.
+  docker exec "$FORGE_JUDGE_ENGINE" docker run --rm --runtime=runsc --network=none --read-only --cap-drop=ALL --security-opt=no-new-privileges --user=65534:65534 --memory=384m --memory-swap=384m --cpus=1 --pids-limit=128 "$FORGE_TOOLCHAIN_IMAGE" cat /toolchain-versions.txt
+  return 1 2>/dev/null || exit 1
+fi
 printf 'Disposable judge ready: %s\n' "$FORGE_JUDGE_ENGINE"
 # Source this script to retain its two non-secret engine identity variables.
