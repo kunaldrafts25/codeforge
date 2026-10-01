@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { Admin, PRACTICE_LANGUAGES, type PracticeSignature } from '@codeforge/shared'
 import dynamic from 'next/dynamic'
@@ -9,6 +9,7 @@ import { useAuth } from '@/lib/auth'
 
 type Problem = {
   id: string
+  versionId?: string
   title: string
   statementMd: string
   constraints: string
@@ -31,6 +32,9 @@ type Job = {
   createdAt: string
   startedAt: string | null
   finishedAt: string | null
+  diagnostics?: string
+  result?: { passed: number; total: number; timeMs: number | null; memoryKb: number | null }
+  samples?: { stdout: string; stderr: string; outcome: string }[]
 }
 const Markdown = dynamic(() => import('@codeforge/ui').then(m => m.Markdown), { ssr: false })
 const defaultCode: Record<string, string> = {
@@ -57,6 +61,10 @@ export default function ProblemPage() {
   const [historyPages, setHistoryPages] = useState(0)
   const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(true)
+  const [executionEnabled, setExecutionEnabled] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const pending = useRef<{ fingerprint: string; key: string } | null>(null)
+  const submitting = useRef(false)
   const jobId = job?.id
   const jobState = job?.state
   const draftKey =
@@ -73,7 +81,10 @@ export default function ProblemPage() {
     void (async () => {
       try {
         const status = await api.get('/practice/capabilities')
-        if (current) setAvailability(status.data.reason)
+        if (current) {
+          setAvailability(status.data.reason)
+          setExecutionEnabled(status.data.enabled === true)
+        }
         let p: Problem
         try {
           p = (await api.get<Problem>(`/practice/problems/${String(slug)}`)).data
@@ -158,6 +169,40 @@ export default function ProblemPage() {
       setNotice('This job is unavailable or belongs to another account.')
     }
   }, [])
+  async function send(kind: 'sample' | 'custom' | 'submit') {
+    if (!problem || !user || submitting.current) return
+    const body = {
+      problemId: problem.id,
+      versionId: problem.versionId,
+      language,
+      code,
+      ...(kind === 'custom' ? { input: customInput } : {}),
+    }
+    const fingerprint = JSON.stringify([kind, body])
+    if (pending.current?.fingerprint !== fingerprint)
+      pending.current = { fingerprint, key: crypto.randomUUID() }
+    submitting.current = true
+    setBusy(true)
+    setNotice('Sending job…')
+    try {
+      const response = await api.post(kind === 'submit' ? '/practice/submit' : '/practice/runs', {
+        ...body,
+        idempotencyKey: pending.current.key,
+      })
+      pending.current = null
+      await openJob(response.data.id)
+      await loadHistory()
+      setNotice('Job saved. Progress and history are available after reload.')
+    } catch (e) {
+      setNotice(
+        (e as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error
+          ?.message ?? 'Request interrupted. Retry to recover the same job.'
+      )
+    } finally {
+      submitting.current = false
+      setBusy(false)
+    }
+  }
   useEffect(() => {
     if (!user) return
     const id = new URL(window.location.href).searchParams.get('job')
@@ -276,17 +321,32 @@ export default function ProblemPage() {
             />
           </label>
           <div className="flex flex-wrap gap-3">
-            <button disabled className="border rounded p-2 opacity-60">
+            <button
+              disabled={!executionEnabled || !problem.versionId || !user || busy}
+              onClick={() => void send('sample')}
+              className="border rounded p-2 disabled:opacity-60"
+            >
               Run sample
             </button>
-            <button disabled className="border rounded p-2 opacity-60">
+            <button
+              disabled={!executionEnabled || !problem.versionId || !user || busy}
+              onClick={() => void send('custom')}
+              className="border rounded p-2 disabled:opacity-60"
+            >
               Run custom input
             </button>
-            <button disabled className="border rounded p-2 opacity-60">
+            <button
+              disabled={!executionEnabled || !problem.versionId || !user || busy}
+              onClick={() => void send('submit')}
+              className="border rounded p-2 disabled:opacity-60"
+            >
               Submit
             </button>
           </div>
-          <p>Run and submit will open after isolated execution is verified.</p>
+          {!executionEnabled && (
+            <p>Run and submit will open after isolated execution is verified.</p>
+          )}
+          {!user && <p>Sign in to run or submit.</p>}
         </section>
       </div>
       <section aria-label="Submission history" className="space-y-3">
@@ -327,6 +387,46 @@ export default function ProblemPage() {
           <article className="border p-3 space-y-2">
             <p>Server status: {job.verdict ?? job.state}</p>
             <p>{job.startedAt ? 'Execution started.' : 'Waiting for execution.'}</p>
+            {job.startedAt && (
+              <p>
+                Queue wait:{' '}
+                {Math.max(0, new Date(job.startedAt).getTime() - new Date(job.createdAt).getTime())}{' '}
+                ms
+              </p>
+            )}
+            {job.result && (
+              <p>
+                Passed {job.result.passed}/{job.result.total}. Execution CPU:{' '}
+                {job.result.timeMs ?? 'unavailable'} ms. Sandbox peak memory:{' '}
+                {job.result.memoryKb ?? 'unavailable'} KiB.
+              </p>
+            )}
+            {job.diagnostics && (
+              <pre className="overflow-auto" aria-label="Compiler diagnostics">
+                {job.diagnostics}
+              </pre>
+            )}
+            {job.samples?.map((sample, i) => (
+              <pre key={i} className="overflow-auto">
+                {sample.outcome}
+                {'\n'}
+                {sample.stdout}
+                {'\n'}
+                {sample.stderr}
+              </pre>
+            ))}
+            {['QUEUED', 'COMPILING', 'RUNNING'].includes(job.state) && (
+              <button
+                onClick={() =>
+                  void api
+                    .post(`/practice/jobs/${job.id}/cancel`, {})
+                    .then(() => openJob(job.id))
+                    .catch(() => setNotice('Cancellation could not be confirmed. Refresh the job.'))
+                }
+              >
+                Cancel job
+              </button>
+            )}
             <button className="underline" onClick={() => void openJob(job.id)}>
               Refresh job
             </button>

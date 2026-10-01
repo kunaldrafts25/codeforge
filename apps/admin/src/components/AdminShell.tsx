@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { ShieldCheck, FileText, LogOut } from 'lucide-react'
 
 const links = [
+  { href: '/admin/judge', label: 'Judge recovery', icon: FileText, minRole: 'ADMIN' },
   { href: '/admin/quiz-review', label: 'Quiz review', icon: FileText, minRole: 'REVIEWER' },
   { href: '/admin/problems', label: 'Coding problems', icon: FileText, minRole: 'PROBLEM_SETTER' },
 ]

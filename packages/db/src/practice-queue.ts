@@ -12,6 +12,7 @@ const terminalVerdicts = [
   'MEMORY_LIMIT',
   'OUTPUT_LIMIT',
   'JUDGE_FAILURE',
+  'RUN_COMPLETE',
 ]
 
 async function serial<T>(
@@ -36,6 +37,7 @@ async function serial<T>(
   }
   throw new Error('Transaction retry exhausted')
 }
+export { serial as practiceTransaction }
 
 // Persistence only. The API does not call this until execution admission is
 // verified. A trusted worker must verify isolation independently before use.
@@ -44,7 +46,7 @@ export async function enqueuePracticeJob(
   input: {
     ownerId: string
     versionId: string
-    kind: 'RUN' | 'SUBMIT'
+    kind: 'RUN' | 'SUBMIT' | 'VALIDATE'
     language: string
     source: string
     input?: string
@@ -86,15 +88,16 @@ export async function enqueuePracticeJob(
     })
     if (
       !v ||
-      v.status !== 'PUBLISHED' ||
       v.withdrawnAt ||
-      v.problem.status !== 'PUBLISHED' ||
-      !v.problem.isPublic
+      (input.kind === 'VALIDATE'
+        ? !['DRAFT', 'VALIDATED'].includes(v.status)
+        : v.status !== 'PUBLISHED' || v.problem.status !== 'PUBLISHED' || !v.problem.isPublic)
     )
       throw new Error('Version is not published')
     const active = { state: { in: ['QUEUED', 'COMPILING', 'RUNNING'] } }
     if (
-      (await tx.practiceJob.count({ where: { ...active, ownerId: input.ownerId } })) >= 3 ||
+      (await tx.practiceJob.count({ where: { ...active, ownerId: input.ownerId } })) >=
+        (input.kind === 'VALIDATE' ? 4 : 3) ||
       (await tx.practiceJob.count({ where: active })) >= 1000
     )
       throw new Error('Judge admission capacity exhausted')
@@ -274,7 +277,7 @@ export async function completePracticeJob(
     result.passed > result.total ||
     (result.verdict === 'ACCEPTED' && (result.total === 0 || result.passed !== result.total)) ||
     [result.timeMs, result.memoryKb].some(n => n !== null && (!Number.isInteger(n) || n < 0)) ||
-    JSON.stringify(result.privateEvidence).length > 100000
+    Buffer.byteLength(JSON.stringify(result.privateEvidence)) > 512 * 1024
   )
     throw new Error('Invalid completion evidence')
   return serial(db, async tx => {
@@ -372,16 +375,27 @@ export async function failPracticeLease(
 
 export async function rejudgePracticeJob(
   db: PrismaClient,
-  input: { id: string; actorId: string; reason: string; idempotencyKey: string }
+  input: {
+    id: string
+    actorId: string
+    reason: string
+    idempotencyKey: string
+    policy?: Prisma.InputJsonObject
+  }
 ) {
   if (input.reason.trim().length < 10 || input.reason.length > 1000)
     throw new Error('Rejudge reason required')
   return serial(db, async tx => {
     const old = await tx.practiceJob.findUniqueOrThrow({ where: { id: input.id } })
-    if (old.kind !== 'SUBMIT' || !['TERMINAL', 'DEAD_LETTER'].includes(old.state))
-      throw new Error('Only completed practice submissions can be rejudged')
+    if (
+      !['RUN', 'SUBMIT', 'VALIDATE'].includes(old.kind) ||
+      !['TERMINAL', 'DEAD_LETTER'].includes(old.state)
+    )
+      throw new Error('Only completed practice jobs can be rejudged')
     const root = old.originJobId ?? old.id
-    const requestHash = digest(JSON.stringify(['rejudge', root, input.actorId, input.reason]))
+    const requestHash = digest(
+      JSON.stringify(['rejudge', root, input.actorId, input.reason, input.policy ?? old.policy])
+    )
     const existing = await tx.practiceJob.findUnique({
       where: {
         ownerId_idempotencyKey: { ownerId: old.ownerId, idempotencyKey: input.idempotencyKey },
@@ -414,7 +428,9 @@ export async function rejudgePracticeJob(
         source: old.source,
         sourceHash: old.sourceHash,
         input: old.input,
-        policy: old.policy as Prisma.InputJsonValue,
+        policy: input.policy
+          ? { ...input.policy, packageHash: (old.policy as Prisma.JsonObject).packageHash }
+          : (old.policy as Prisma.InputJsonValue),
         requestHash,
         idempotencyKey: input.idempotencyKey,
         originJobId: root,
@@ -437,5 +453,31 @@ export async function rejudgePracticeJob(
       },
     })
     return job
+  })
+}
+
+// Keep immutable submissions/reference evidence indefinitely. Only terminal
+// sample/custom leaf runs older than 30 days are eligible; bounded batches and
+// FK checks prevent deleting a rejudge root or anything used by the ledger.
+export async function retainPracticeRuns(db: PrismaClient, now = new Date()) {
+  const cutoff = new Date(now.getTime() - 30 * 86400000)
+  return serial(db, async tx => {
+    const rows = await tx.$queryRaw<{ id: string }[]>`SELECT j."id" FROM "PracticeJob" j
+      WHERE j."kind" = 'RUN' AND j."state" IN ('TERMINAL','CANCELLED','DEAD_LETTER')
+        AND j."finishedAt" < ${cutoff}
+        AND NOT EXISTS (SELECT 1 FROM "PracticeJob" child WHERE child."originJobId" = j."id")
+        AND NOT EXISTS (SELECT 1 FROM "PracticeSolve" s WHERE s."jobId" = j."id")
+      ORDER BY j."finishedAt" LIMIT 100 FOR UPDATE OF j SKIP LOCKED`
+    if (!rows.length) return 0
+    const ids = rows.map(row => row.id)
+    await tx.practiceOutbox.deleteMany({ where: { jobId: { in: ids } } })
+    await tx.practiceJob.deleteMany({ where: { id: { in: ids } } })
+    await tx.auditLog.create({
+      data: {
+        action: 'practice.retention',
+        payload: { ids, cutoff: cutoff.toISOString(), policy: 'terminal-run-leaves-30-days' },
+      },
+    })
+    return rows.length
   })
 }

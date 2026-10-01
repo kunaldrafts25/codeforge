@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { PracticePackage } from '@codeforge/shared'
+import { prisma } from '@codeforge/db'
 
 export function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
@@ -39,9 +40,24 @@ export function publicPackage(raw: unknown) {
 
 // The runtime and durable worker have not been verified. No environment flag
 // can bypass this admission decision.
-export const executionAvailability = () => ({
+const unavailable = () => ({
   enabled: false as const,
   code: 'JUDGE_UNAVAILABLE',
   reason:
     'Isolated execution is awaiting verification. Drafts can be saved; run, submission and publication are unavailable.',
 })
+export async function executionAvailability() {
+  if (process.env.FORGE_PRACTICE_ENABLED !== '1') return unavailable()
+  const runtime = await prisma.practiceJudgeRuntime.findFirst({
+    where: { expiresAt: { gt: new Date() } },
+    orderBy: { heartbeatAt: 'desc' },
+  })
+  if (!runtime || runtime.policyHash !== hash(canonical(runtime.policy))) return unavailable()
+  return {
+    enabled: true,
+    code: 'JUDGE_READY',
+    reason: 'Verified isolated worker available.',
+    policy: runtime.policy,
+    policyHash: runtime.policyHash,
+  }
+}

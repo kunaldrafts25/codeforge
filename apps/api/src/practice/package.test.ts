@@ -32,9 +32,9 @@ describe('private package boundary', () => {
     expect(text).not.toContain('PRIVATE_')
     expect(text).not.toContain('references')
   })
-  it('cannot enable execution from an environment switch', () => {
+  it('cannot enable execution from an environment switch', async () => {
     process.env.JUDGE_ENABLED = 'true'
-    expect(executionAvailability().enabled).toBe(false)
+    expect((await executionAvailability()).enabled).toBe(false)
     delete process.env.JUDGE_ENABLED
   })
 })

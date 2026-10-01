@@ -43,6 +43,7 @@ type Version = {
   packageHash: string
   problem: { slug: string; title?: string }
   package?: Package
+  jobs?: { id: string; state: string; verdict: string | null; failureCode: string | null }[]
 }
 const allowed = ['PROBLEM_SETTER', 'REVIEWER', 'ADMIN', 'SUPER_ADMIN']
 const css = 'block w-full rounded border p-2 bg-background'
@@ -59,6 +60,39 @@ export default function ProblemAuthoringPage() {
   const [busy, setBusy] = useState(false)
   const [rightsConfirmed, setRightsConfirmed] = useState(false)
   const [reason, setReason] = useState('')
+  const [availability, setAvailability] = useState('Checking judge availability…')
+  const [executionEnabled, setExecutionEnabled] = useState(false)
+  const [validating, setValidating] = useState(false)
+  const selectedId = selected?.id
+  useEffect(() => {
+    if (!validating || !selectedId) return
+    let requests = 0
+    const timer = setInterval(() => {
+      if (++requests > 60) {
+        setValidating(false)
+        setNotice('Automatic validation updates paused. Refresh validation status.')
+        return
+      }
+      void api
+        .get<Version>(`/practice/staff/versions/${selectedId}`)
+        .then(r => {
+          setSelected(current => (current?.id === selectedId ? r.data : current))
+          if (
+            r.data.status === 'VALIDATED' ||
+            r.data.jobs?.some(
+              j => ['TERMINAL', 'DEAD_LETTER'].includes(j.state) && j.verdict !== 'ACCEPTED'
+            )
+          ) {
+            setValidating(false)
+          }
+        })
+        .catch(() => {
+          setValidating(false)
+          setError('Validation updates interrupted. Refresh validation status.')
+        })
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [validating, selectedId])
   const canAuthor = user && ['PROBLEM_SETTER', 'ADMIN', 'SUPER_ADMIN'].includes(user.role)
   const canReview = user && ['REVIEWER', 'ADMIN', 'SUPER_ADMIN'].includes(user.role)
   const reload = useCallback(async () => {
@@ -71,6 +105,13 @@ export default function ProblemAuthoringPage() {
   }, [user])
   useEffect(() => {
     void reload()
+    void api
+      .get('/practice/capabilities')
+      .then(r => {
+        setAvailability(r.data.reason)
+        setExecutionEnabled(r.data.enabled === true)
+      })
+      .catch(() => setAvailability('Judge availability could not be checked.'))
   }, [reload])
   async function open(id: string) {
     try {
@@ -126,12 +167,15 @@ export default function ProblemAuthoringPage() {
             ? { reason }
             : {}
       await api.post(`/practice/staff/versions/${selected.id}/${kind}`, body)
+      if (kind === 'validate') setValidating(true)
       await reload()
       await open(selected.id)
       setNotice(
         kind === 'withdraw'
           ? 'Version withdrawn. Historical records are preserved.'
-          : 'Action completed.'
+          : kind === 'validate'
+            ? 'Reference execution queued. Validation requires every reference to pass.'
+            : 'Action completed.'
       )
     } catch (e) {
       setError(
@@ -178,8 +222,7 @@ export default function ProblemAuthoringPage() {
       <main className="max-w-5xl mx-auto p-4 space-y-5">
         <h1 className="text-3xl font-bold">Coding problem authoring</h1>
         <p role="status" className="border border-amber-500 rounded p-3">
-          Drafts and review are available. Reference execution and publication await verified judge
-          isolation.
+          {availability}
         </p>
         {error && (
           <p role="alert" className="text-red-600 break-words">
@@ -526,13 +569,28 @@ export default function ProblemAuthoringPage() {
         {selected && (
           <section aria-label="Version review" className="border rounded p-4 space-y-3">
             <h2 className="text-xl font-semibold">Review exact saved version</h2>
+            <p role="status">
+              {availability} Version status: {selected.status}
+            </p>
+            {selected.jobs?.map(j => (
+              <p key={j.id}>
+                Reference: {j.verdict ?? j.state}
+                {j.failureCode ? ` (${j.failureCode})` : ''}
+              </p>
+            ))}
+            <button onClick={() => void open(selected.id)}>Refresh validation status</button>
             <p>
               Review uses the saved package hash. Unsaved editor changes are not part of this
               version.
             </p>
             <button
               className="border p-2"
-              disabled={busy || !canAuthor}
+              disabled={
+                busy ||
+                !canAuthor ||
+                !executionEnabled ||
+                !['DRAFT', 'VALIDATED'].includes(selected.status)
+              }
               onClick={() => void action('validate')}
             >
               Validate reference solution
@@ -547,7 +605,14 @@ export default function ProblemAuthoringPage() {
             </label>
             <button
               className="border p-2"
-              disabled={busy || !canReview || selected.authorId === user?.id || !rightsConfirmed}
+              disabled={
+                busy ||
+                !canReview ||
+                !executionEnabled ||
+                selected.status !== 'VALIDATED' ||
+                selected.authorId === user?.id ||
+                !rightsConfirmed
+              }
               onClick={() => void action('publish')}
             >
               Publish reviewed version

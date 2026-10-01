@@ -1,6 +1,6 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import type { Prisma } from '@codeforge/db'
-import { prisma } from '@codeforge/db'
+import { prisma, Prisma as Sql } from '@codeforge/db'
 import {
   ProblemDetailResponse,
   ProblemListQuery,
@@ -57,8 +57,27 @@ export const problemRoutes: FastifyPluginAsyncZod = async app => {
         prisma.problem.count({ where }),
       ])
 
+      const stats = problems.length
+        ? await prisma.$queryRaw<{ problemId: string; total: bigint; accepted: bigint }[]>(Sql.sql`
+        SELECT "problemId", count(*) AS total, count(*) FILTER (WHERE verdict='ACCEPTED') AS accepted FROM (
+          SELECT DISTINCT ON (COALESCE(j."originJobId",j.id)) v."problemId", j.verdict
+          FROM "PracticeJob" j JOIN "PracticeVersion" v ON v.id=j."versionId"
+          WHERE v."problemId" IN (${Sql.join(problems.map(p => p.id))}) AND j.kind='SUBMIT' AND j.state='TERMINAL'
+          ORDER BY COALESCE(j."originJobId",j.id), j.generation DESC
+        ) latest GROUP BY "problemId"`)
+        : []
       return {
-        problems,
+        problems: problems.map(p => {
+          const s = stats.find(s => s.problemId === p.id)
+          return s
+            ? {
+                ...p,
+                totalSubmissions: Number(s.total),
+                totalAccepted: Number(s.accepted),
+                acceptanceRate: (Number(s.accepted) / Number(s.total)) * 100,
+              }
+            : p
+        }),
         total,
         page,
         totalPages: Math.ceil(total / limit) || 1,

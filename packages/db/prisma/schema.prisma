@@ -460,6 +460,16 @@ model SubmissionTestResult {
 
 // Phase 2: immutable private packages and durable execution generations.
 // Admission remains disabled until the isolated runtime is verified.
+model PracticeJudgeRuntime {
+  id           String   @id
+  policy       Json
+  policyHash   String
+  evidenceHash String
+  verifiedAt   DateTime
+  heartbeatAt  DateTime
+  expiresAt    DateTime
+}
+
 model PracticeVersion {
   id          String        @id @default(uuid())
   problemId   String

@@ -11,4 +11,5 @@ UNION ALL SELECT 'QuizTest', count(*), md5(string_agg(row_to_json(t)::text, ',' 
 UNION ALL SELECT 'QuizAttempt', count(*), md5(string_agg(row_to_json(t)::text, ',' ORDER BY id)) FROM "QuizAttempt" t
 UNION ALL SELECT 'QuizResponse', count(*), md5(string_agg(row_to_json(t)::text, ',' ORDER BY id)) FROM "QuizResponse" t
 UNION ALL SELECT 'AuditLog', count(*), md5(string_agg(row_to_json(t)::text, ',' ORDER BY id)) FROM "AuditLog" t
+UNION ALL SELECT 'PracticeJudgeRuntime', count(*), md5(string_agg(row_to_json(t)::text, ',' ORDER BY id)) FROM "PracticeJudgeRuntime" t
 UNION ALL SELECT '_prisma_migrations', count(*), md5(string_agg(row_to_json(t)::text, ',' ORDER BY id)) FROM "_prisma_migrations" t;

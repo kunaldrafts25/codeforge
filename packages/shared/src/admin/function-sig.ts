@@ -118,11 +118,35 @@ export function generateStarter(sig: FunctionSignature, language: string): strin
   if (lang === 'python') {
     const params = sig.params.map(p => `${p.name}: ${renderType(p.type, 'python')}`).join(', ')
     const ret = renderType(sig.returns, 'python')
-    return `class Solution:\n    def ${sig.name}(self${params ? ', ' + params : ''}) -> ${ret}:\n        # TODO: implement\n        pass\n`
+    const value =
+      sig.returns.kind !== 'prim'
+        ? '[]'
+        : {
+            int: '0',
+            long: '0',
+            double: '0.0',
+            bool: 'False',
+            string: "''",
+            char: "''",
+            void: 'None',
+          }[sig.returns.name]
+    return `class Solution:\n    def ${sig.name}(self${params ? ', ' + params : ''}) -> ${ret}:\n        # TODO: implement\n        return ${value}\n`
   }
   if (lang === 'javascript') {
     const params = sig.params.map(p => p.name).join(', ')
-    return `/**\n * @param {...} args\n */\nfunction ${sig.name}(${params}) {\n  // TODO: implement\n}\n`
+    const value =
+      sig.returns.kind !== 'prim'
+        ? '[]'
+        : {
+            int: '0',
+            long: '0',
+            double: '0',
+            bool: 'false',
+            string: "''",
+            char: "''",
+            void: 'undefined',
+          }[sig.returns.name]
+    return `/**\n * @param {...} args\n */\nfunction ${sig.name}(${params}) {\n  // TODO: implement\n  return ${value};\n}\n`
   }
   return `# starter for ${language} not implemented\n`
 }
@@ -145,5 +169,6 @@ function defaultJava(t: SigTypeValue): string {
         return ''
     }
   }
-  return 'null'
+  const base = renderType(t.of, 'java')
+  return `new ${base}${t.kind === 'matrix' ? '[0][0]' : '[0]'}`
 }

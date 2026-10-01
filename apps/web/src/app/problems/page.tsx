@@ -39,6 +39,13 @@ export default function ProblemsPage() {
   const [difficulty, setDifficulty] = useState('All')
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
+  const [availability, setAvailability] = useState('Checking judge availability…')
+  useEffect(() => {
+    void api
+      .get('/practice/capabilities')
+      .then(r => setAvailability(r.data.reason))
+      .catch(() => setAvailability('Judge availability could not be checked.'))
+  }, [])
 
   const fetchProblems = useCallback(async () => {
     try {
@@ -80,10 +87,12 @@ export default function ProblemsPage() {
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <p role="status" className="mb-5 rounded border border-amber-500 p-3">
-        Coding execution is awaiting isolation verification. You can browse problems and preserve
-        code drafts.
+        {availability}
       </p>
       {error && <p role="alert">{error}</p>}
+      <Link className="underline" href="/practice/history">
+        Your practice history
+      </Link>
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
         <h1 className="text-3xl font-bold">Problems</h1>
 

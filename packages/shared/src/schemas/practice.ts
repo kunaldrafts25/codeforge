@@ -217,6 +217,7 @@ export const PracticeDraftBody = z
 export const PracticeJobBody = z
   .object({
     problemId: z.string().uuid(),
+    versionId: z.string().uuid().optional(),
     language: PracticeLanguage,
     code: boundedText.refine(v => v.length > 0, 'Source required'),
     idempotencyKey: z.string().uuid(),

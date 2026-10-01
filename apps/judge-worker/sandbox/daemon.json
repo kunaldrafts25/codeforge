@@ -1,0 +1,9 @@
+{
+  "runtimes": {
+    "runsc": {
+      "path": "/usr/local/bin/runsc",
+      "runtimeArgs": ["--platform=systrap", "--network=none", "--oci-seccomp"]
+    }
+  },
+  "log-driver": "none"
+}

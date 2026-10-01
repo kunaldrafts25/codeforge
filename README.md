@@ -28,6 +28,8 @@ pnpm build
 pnpm exec playwright test
 ```
 
-CI provisions PostgreSQL, deploys migrations, rehearses backup and restore, seeds a draft, and runs Playwright staff and candidate journeys. Phase 2 adds immutable practice packages, authoring, private projections, draft persistence, bounded checkers, and durable job persistence. Candidate execution, reference validation, publication, and rejudge admission remain disabled until a dedicated Linux sandbox and real worker are verified. The worker preflight cannot enable execution merely because a runtime is installed.
+CI provisions PostgreSQL, deploys migrations, rehearses backup and restore, seeds a draft, and runs Playwright staff and candidate journeys. Phase 2 includes immutable practice packages, independent publication, private projections, drafts/history, and a durable isolated judge for C++, Python, Java and JavaScript in standard I/O and typed function modes. Execution requires explicit admission configuration and a fresh verified worker heartbeat. The old preflight is diagnostic only. Contests remain disabled.
+
+For disposable real judging, see [the judge setup](apps/judge-worker/README.md). The required Linux judge CI job runs only trusted repository pushes and fails for untrusted pull-request events before creating privileged infrastructure. Foundation unit/data tests remain separate from real execution acceptance. Historical credential-incident closure remains a launch requirement.
 
 On Windows, `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-phase2.ps1` creates fresh test credentials and disposable databases, verifies additive migration compatibility and synthetic job recovery, runs all static/browser checks, and rehearses restore. Synthetic lifecycle results do not prove compiler correctness or isolation. The unresolved historical credential incident remains a launch blocker; a passing test run does not resolve it.

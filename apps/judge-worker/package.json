@@ -4,15 +4,25 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node src/preflight.mjs",
+    "dev": "tsx src/service.ts",
+    "doctor": "tsx src/doctor.ts",
+    "integration": "tsx src/integration.ts && tsx src/isolation.ts",
     "preflight": "node src/preflight.mjs",
     "build": "tsc",
-    "lint": "node --check src/preflight.mjs",
+    "lint": "eslint src --ext .ts,.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/preflight.test.mjs"
+    "test": "node --test src/preflight.test.mjs && vitest run"
+  },
+  "dependencies": {
+    "@codeforge/db": "workspace:*",
+    "@codeforge/shared": "workspace:*",
+    "@codeforge/checker-lib": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "20.19.41",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "tsx": "^4.19.0",
+    "vitest": "^2.1.9",
+    "eslint": "^8.57.1"
   }
 }

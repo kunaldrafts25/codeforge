@@ -221,13 +221,32 @@ importers:
   apps/async-worker: {}
 
   apps/judge-worker:
+    dependencies:
+      '@codeforge/checker-lib':
+        specifier: workspace:*
+        version: link:../../packages/checker-lib
+      '@codeforge/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@codeforge/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
     devDependencies:
       '@types/node':
         specifier: 20.19.41
         version: 20.19.41
+      eslint:
+        specifier: ^8.57.1
+        version: 8.57.1
+      tsx:
+        specifier: ^4.19.0
+        version: 4.22.2
       typescript:
         specifier: ^5.5.4
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@20.19.41)(jsdom@25.0.1)
 
   apps/web:
     dependencies:

@@ -67,8 +67,7 @@ test('private authoring and candidate drafts survive reload while execution stay
   })
   expect(rows).toHaveLength(2)
   expect((rows[0]?.package as { title: string }).title).toBe('Browser authored draft')
-  await author.getByRole('button', { name: 'Validate reference solution' }).click()
-  await expect(author.getByRole('alert').filter({ hasText: 'awaiting verification' })).toBeVisible()
+  await expect(author.getByRole('button', { name: 'Validate reference solution' })).toBeDisabled()
   await expect(author.getByRole('button', { name: 'Publish reviewed version' })).toBeDisabled()
   const reviewContext = await browser.newContext()
   const reviewer = await reviewContext.newPage()
@@ -83,10 +82,7 @@ test('private authoring and candidate drafts survive reload while execution stay
   await reviewer
     .getByLabel('I independently reviewed the saved tests, solutions and rights basis.')
     .check()
-  await reviewer.getByRole('button', { name: 'Publish reviewed version' }).click()
-  await expect(
-    reviewer.getByRole('alert').filter({ hasText: 'awaiting verification' })
-  ).toBeVisible()
+  await expect(reviewer.getByRole('button', { name: 'Publish reviewed version' })).toBeDisabled()
   await reviewer.getByLabel('Withdrawal reason').fill('Disposable browser fixture withdrawn.')
   await reviewer.getByRole('button', { name: 'Withdraw version' }).click()
   await expect(
