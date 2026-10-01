@@ -14,9 +14,16 @@ export async function verifyBoundary(): Promise<{
     throw new Error('Immutable toolchain content ID required')
   const outer = JSON.parse(
     await command(['inspect', '--format', '{{json .HostConfig}}', engineName()])
-  ) as { NetworkMode: string; Binds: unknown; PortBindings: unknown; Privileged: boolean }
+  ) as {
+    NetworkMode: string
+    Binds: unknown
+    PortBindings: unknown
+    Privileged: boolean
+    CgroupnsMode: string
+  }
   if (
     outer.NetworkMode !== 'none' ||
+    outer.CgroupnsMode !== 'private' ||
     outer.Binds ||
     Object.keys(outer.PortBindings ?? {}).length ||
     !outer.Privileged

@@ -7,7 +7,7 @@ archive="$(mktemp -t codeforge-toolchain-XXXXXXXX.tar)"
 docker build -f apps/judge-worker/sandbox/toolchain.Dockerfile -t codeforge-judge-toolchain:p2 apps/judge-worker/sandbox
 docker build -f apps/judge-worker/sandbox/engine.Dockerfile -t codeforge-judge-engine:p2 apps/judge-worker/sandbox
 # Dedicated privileged control plane, never candidate privilege or host binds.
-docker run -d --name "$FORGE_JUDGE_ENGINE" --privileged --network none --memory 2560m --cpus 2 --pids-limit 2048 --label codeforge.disposable=phase2-judge codeforge-judge-engine:p2
+docker run -d --name "$FORGE_JUDGE_ENGINE" --privileged --cgroupns=private --network none --memory 2560m --cpus 2 --pids-limit 2048 --label codeforge.disposable=phase2-judge codeforge-judge-engine:p2
 ready=0
 for attempt in {1..30}; do if docker exec "$FORGE_JUDGE_ENGINE" docker info >/dev/null 2>&1; then ready=1; break; fi; sleep 1; done
 [[ $ready == 1 ]] || { echo 'Judge engine unavailable' >&2; return 1 2>/dev/null || exit 1; }

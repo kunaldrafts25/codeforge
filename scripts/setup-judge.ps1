@@ -10,7 +10,7 @@ Invoke-JudgeSetup { docker build -f apps/judge-worker/sandbox/toolchain.Dockerfi
 Invoke-JudgeSetup { docker build -f apps/judge-worker/sandbox/engine.Dockerfile -t codeforge-judge-engine:p2 apps/judge-worker/sandbox }
 # Trusted disposable engine is privileged. It has no host binds/socket,
 # application secrets, ports or network. Candidate sandboxes never inherit it.
-Invoke-JudgeSetup { docker run -d --name $judgeName --privileged --network none --memory 2560m --cpus 2 --pids-limit 2048 --label codeforge.disposable=phase2-judge codeforge-judge-engine:p2 }
+Invoke-JudgeSetup { docker run -d --name $judgeName --privileged --cgroupns=private --network none --memory 2560m --cpus 2 --pids-limit 2048 --label codeforge.disposable=phase2-judge codeforge-judge-engine:p2 }
 for ($judgeAttempt = 0; $judgeAttempt -lt 30; $judgeAttempt++) {
   docker exec $judgeName docker info --format '{{.ServerVersion}}' 2>$null
   if ($LASTEXITCODE -eq 0) { break }

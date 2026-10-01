@@ -267,6 +267,60 @@ try {
   })
   await post(3, `/jobs/${cancelled.id}/cancel`, {})
   assert.equal((await terminal(cancelled.id)).state, 'CANCELLED')
+  const runningCancel = await post(3, '/submit', {
+    ...body,
+    idempotencyKey: randomUUID(),
+    code: 'import time\ntime.sleep(30)',
+  })
+  const runningFence = await until(async () => {
+    const row = await prisma.practiceJob.findUniqueOrThrow({ where: { id: runningCancel.id } })
+    if (row.state !== 'RUNNING') return null
+    const ids = (
+      await command([
+        'exec',
+        engineName(),
+        'docker',
+        'ps',
+        '-q',
+        '--filter',
+        `label=codeforge.job=${row.id}_${row.fence}`,
+      ])
+    ).trim()
+    if (!ids || ids.includes('\n')) return null
+    const executions = JSON.parse(
+      await command([
+        'exec',
+        engineName(),
+        'docker',
+        'inspect',
+        '--format',
+        '{{json .ExecIDs}}',
+        ids,
+      ])
+    ) as string[] | null
+    return executions?.length ? { fence: row.fence } : null
+  })
+  await post(3, `/jobs/${runningCancel.id}/cancel`, {})
+  assert.equal((await terminal(runningCancel.id)).state, 'CANCELLED')
+  await until(async () => {
+    const remaining = await command([
+      'exec',
+      engineName(),
+      'docker',
+      'ps',
+      '-aq',
+      '--filter',
+      `label=codeforge.job=${runningCancel.id}_${runningFence.fence}`,
+    ])
+    return remaining.trim() ? null : true
+  }, 20000)
+  assert.equal(
+    await prisma.practiceSolve.count({ where: { ownerId: users[3]!.id, problemId: v.problemId } }),
+    0
+  )
+  console.log(
+    JSON.stringify({ event: 'judge.running_cancel_passed', sandboxRemoved: true, solveCount: 0 })
+  )
   const rejudged = await post(4, `/staff/jobs/${a.id}/rejudge`, {
     reason: 'Real operator recovery acceptance.',
     idempotencyKey: randomUUID(),
