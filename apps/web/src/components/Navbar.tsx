@@ -8,12 +8,7 @@ import { useTheme } from './ThemeProvider'
 import { useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
-const navLinks = [
-  { href: '/problems', label: 'Problems' },
-  { href: '/contests', label: 'Contests' },
-  { href: '/aptitude', label: 'Aptitude' },
-  { href: '/leaderboard', label: 'Leaderboard' },
-]
+const navLinks = [{ href: '/aptitude', label: 'Aptitude' }]
 
 export function Navbar() {
   const pathname = usePathname()
@@ -75,7 +70,11 @@ export function Navbar() {
             </div>
           )}
 
-          <button className="md:hidden p-2" onClick={() => setMobileOpen(!mobileOpen)}>
+          <button
+            aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+            className="md:hidden p-2"
+            onClick={() => setMobileOpen(!mobileOpen)}
+          >
             {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>

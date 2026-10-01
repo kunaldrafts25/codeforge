@@ -18,10 +18,9 @@ export default function LoginPage() {
     setError(null)
     setLoading(true)
     try {
-      await api.get('/auth/csrf')
       await api.post('/auth/login', { email, password })
       await refresh()
-      router.replace('/admin/problems')
+      router.replace('/admin/quiz-review')
     } catch (err) {
       const msg =
         (err as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error
@@ -43,8 +42,11 @@ export default function LoginPage() {
           You need PROBLEM_SETTER or above to use this app.
         </p>
         <div className="space-y-1">
-          <label className="text-sm font-medium">Email</label>
+          <label htmlFor="admin-email" className="text-sm font-medium">
+            Email
+          </label>
           <input
+            id="admin-email"
             type="email"
             required
             value={email}
@@ -53,8 +55,11 @@ export default function LoginPage() {
           />
         </div>
         <div className="space-y-1">
-          <label className="text-sm font-medium">Password</label>
+          <label htmlFor="admin-password" className="text-sm font-medium">
+            Password
+          </label>
           <input
+            id="admin-password"
             type="password"
             required
             value={password}

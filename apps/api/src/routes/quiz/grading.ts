@@ -129,7 +129,10 @@ export function projectPublicPayload(
     case 'MCQ_SINGLE':
     case 'MCQ_MULTI':
     case 'SELECT_OUTPUT': {
-      const opts = (p.options ?? []) as { id: string; text: string }[]
+      const opts = ((p.options ?? []) as { id: string; text: string }[]).map(option => ({
+        id: option.id,
+        text: option.text,
+      }))
       const shuffled =
         optionOrder.length === opts.length ? optionOrder.map(i => opts[i]!).filter(Boolean) : opts
       const out: Record<string, unknown> = { options: shuffled }

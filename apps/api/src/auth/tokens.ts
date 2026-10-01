@@ -6,6 +6,7 @@ const config = loadConfig()
 
 export interface AccessTokenPayload {
   sub: string // userId
+  sid: string // server-side session id
   username: string
   role: string
 }

@@ -41,8 +41,8 @@ export function AdminShell({
   }
 
   return (
-    <div className="min-h-screen flex">
-      <aside className="w-60 border-r border-border bg-card flex flex-col">
+    <div className="min-h-screen flex flex-col md:flex-row">
+      <aside className="w-full md:w-60 border-r border-border bg-card flex flex-col">
         <div className="h-16 flex items-center gap-2 px-4 border-b border-border">
           <ShieldCheck className="w-6 h-6 text-primary" />
           <span className="font-bold text-lg">CodeForge Admin</span>
@@ -80,7 +80,7 @@ export function AdminShell({
           </button>
         </div>
       </aside>
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
     </div>
   )
 }

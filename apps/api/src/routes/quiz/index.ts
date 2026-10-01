@@ -17,17 +17,41 @@ const answerBody = z.object({
   questionId: z.string().uuid(),
   answer: z.union([z.object({ selected: z.string().min(1) }), z.object({ value: z.boolean() })]),
 })
+const reviewBody = z.object({
+  rightsConfirmed: z.literal(true),
+  sourceUrl: z.string().url().optional(),
+  license: z.string().trim().min(2).max(120),
+})
+const withdrawalBody = z.object({ reason: z.string().trim().min(10).max(1000) })
+const snapshotSchema = z.object({
+  type: z.enum(supported),
+  stemMd: z.string(),
+  payload: z.unknown(),
+  scoringPolicy: z.object({ marksPerCorrect: z.number(), negativeMarks: z.number() }),
+})
+
+function frozen(snapshot: unknown) {
+  const parsed = snapshotSchema.safeParse(snapshot)
+  if (!parsed.success) throw conflict('SNAPSHOT_MISSING', 'Attempt requires operator review')
+  return parsed.data
+}
 
 function eligible(test: {
   status: string
   isAdaptive: boolean
   proctorLevel: string
+  requireWebcam: boolean
+  requireFullscreen: boolean
+  requireScreenShare: boolean
   items: { question: { type: string; status: string } }[]
 }): boolean {
   return (
     test.status === 'published' &&
     !test.isAdaptive &&
     test.proctorLevel === 'off' &&
+    !test.requireWebcam &&
+    !test.requireFullscreen &&
+    !test.requireScreenShare &&
     test.items.length > 0 &&
     test.items.every(
       i =>
@@ -42,6 +66,9 @@ export function reviewable(
     status: string
     isAdaptive: boolean
     proctorLevel: string
+    requireWebcam: boolean
+    requireFullscreen: boolean
+    requireScreenShare: boolean
     durationMinutes: number
     sections: unknown
     items: {
@@ -69,6 +96,9 @@ export function reviewable(
     test.status !== 'draft' ||
     test.isAdaptive ||
     test.proctorLevel !== 'off' ||
+    test.requireWebcam ||
+    test.requireFullscreen ||
+    test.requireScreenShare ||
     !Number.isInteger(test.durationMinutes) ||
     test.durationMinutes < 1 ||
     test.durationMinutes > 240 ||
@@ -101,8 +131,9 @@ export function reviewable(
   })
 }
 
-function deadline(startedAt: Date, durationMinutes: number): number {
-  return startedAt.getTime() + durationMinutes * 60_000
+function deadline(deadlineAt: Date | null): number {
+  if (!deadlineAt) throw conflict('DEADLINE_MISSING', 'Attempt requires operator review')
+  return deadlineAt.getTime()
 }
 
 async function withSerializationRetry<T>(run: () => Promise<T>): Promise<T> {
@@ -121,7 +152,7 @@ async function ownedAttempt(id: string, userId: string) {
     where: { id, userId },
     include: {
       test: true,
-      responses: { include: { question: true }, orderBy: { presentedOrder: 'asc' } },
+      responses: { orderBy: { presentedOrder: 'asc' } },
     },
   })
   if (!attempt) throw notFound('ATTEMPT_NOT_FOUND', 'Attempt not found')
@@ -134,41 +165,27 @@ async function finalize(id: string, userId: string, requireExpiry = false) {
       async tx => {
         const attempt = await tx.quizAttempt.findFirst({
           where: { id, userId },
-          include: { test: true, responses: { include: { question: true } } },
+          include: { test: true, responses: true },
         })
         if (!attempt) throw notFound('ATTEMPT_NOT_FOUND', 'Attempt not found')
         if (attempt.submittedAt) return attempt
         const now = new Date()
-        if (
-          requireExpiry &&
-          now.getTime() < deadline(attempt.startedAt, attempt.test.durationMinutes)
-        ) {
+        if (requireExpiry && now.getTime() < deadline(attempt.deadlineAt)) {
           throw conflict('ATTEMPT_ACTIVE', 'Attempt is still active')
         }
-        const section = z
-          .array(
-            z.object({
-              name: z.string(),
-              scoringPolicy: z.object({
-                marksPerCorrect: z.number(),
-                negativeMarks: z.number(),
-              }),
-            })
-          )
-          .parse(attempt.test.sections)[0]
-        if (!section) throw badRequest('INVALID_TEST', 'Test has no scoring policy')
         let score = 0
         for (const response of attempt.responses) {
+          const snapshot = frozen(response.scoringSnapshot)
           const answered =
             response.answerPayload &&
             typeof response.answerPayload === 'object' &&
             Object.keys(response.answerPayload).length > 0
           const result = answered
             ? gradeQuestion(
-                response.question.type,
-                response.question.payload,
+                snapshot.type,
+                snapshot.payload,
                 response.answerPayload,
-                section.scoringPolicy
+                snapshot.scoringPolicy
               )
             : { isCorrect: false, pointsAwarded: 0 }
           score += result.pointsAwarded
@@ -178,9 +195,10 @@ async function finalize(id: string, userId: string, requireExpiry = false) {
           where: { id, userId, submittedAt: null },
           data: {
             submittedAt: now,
+            activeKey: null,
             durationActualSeconds: Math.min(
               Math.floor((now.getTime() - attempt.startedAt.getTime()) / 1000),
-              attempt.test.durationMinutes * 60
+              Math.floor((deadline(attempt.deadlineAt) - attempt.startedAt.getTime()) / 1000)
             ),
             rawScore: score,
             // A percentile or calibrated aptitude score needs a validated cohort.
@@ -188,6 +206,14 @@ async function finalize(id: string, userId: string, requireExpiry = false) {
         })
         if (claimed.count !== 1)
           throw conflict('ALREADY_SUBMITTED', 'Attempt was already submitted')
+        await tx.auditLog.create({
+          data: {
+            actorId: userId,
+            action: requireExpiry ? 'quiz.attempt.timeout' : 'quiz.attempt.submit',
+            target: `quizAttempt:${id}`,
+            payload: { rawScore: score, submittedAt: now.toISOString() },
+          },
+        })
         return { ...attempt, submittedAt: now, rawScore: score }
       },
       { isolationLevel: 'Serializable' }
@@ -201,11 +227,12 @@ export const quizRoutes: FastifyPluginAsyncZod = async app => {
     { preHandler: [app.requireRole('REVIEWER', 'ADMIN', 'SUPER_ADMIN')] },
     async () => {
       const tests = await prisma.quizTest.findMany({
-        where: { status: 'draft' },
+        where: { status: { in: ['draft', 'published'] } },
         include: { items: { include: { question: true }, orderBy: { orderIndex: 'asc' } } },
       })
       return tests.map(t => ({
         slug: t.slug,
+        status: t.status,
         title: t.title,
         durationMinutes: t.durationMinutes,
         sections: t.sections,
@@ -224,7 +251,7 @@ export const quizRoutes: FastifyPluginAsyncZod = async app => {
   app.post(
     '/review/tests/:slug/publish',
     {
-      schema: { params: slugParam },
+      schema: { params: slugParam, body: reviewBody },
       preHandler: [app.requireRole('REVIEWER', 'ADMIN', 'SUPER_ADMIN')],
     },
     async request => {
@@ -246,10 +273,19 @@ export const quizRoutes: FastifyPluginAsyncZod = async app => {
             for (const item of test.items) {
               await tx.quizQuestion.update({
                 where: { id: item.questionId },
-                data: { status: 'LIVE', reviewerId: request.user!.id },
+                data: {
+                  status: 'LIVE',
+                  reviewerId: request.user!.id,
+                  sourceUrl: request.body.sourceUrl ?? null,
+                  license: request.body.license,
+                  rightsAttestedAt: now,
+                },
               })
             }
-            await tx.quizTest.update({ where: { id: test.id }, data: { status: 'published' } })
+            await tx.quizTest.update({
+              where: { id: test.id },
+              data: { status: 'published', reviewedBy: request.user!.id, reviewedAt: now },
+            })
             await tx.auditLog.create({
               data: {
                 actorId: request.user!.id,
@@ -260,7 +296,53 @@ export const quizRoutes: FastifyPluginAsyncZod = async app => {
                 payload: {
                   questionIds: test.items.map(i => i.questionId),
                   publishedAt: now.toISOString(),
+                  sourceUrl: request.body.sourceUrl ?? null,
+                  license: request.body.license,
+                  rightsAttested: true,
                 },
+              },
+            })
+          },
+          { isolationLevel: 'Serializable' }
+        )
+      )
+      return { ok: true }
+    }
+  )
+
+  app.post(
+    '/review/tests/:slug/withdraw',
+    {
+      schema: { params: slugParam, body: withdrawalBody },
+      preHandler: [app.requireRole('REVIEWER', 'ADMIN', 'SUPER_ADMIN')],
+    },
+    async request => {
+      await withSerializationRetry(() =>
+        prisma.$transaction(
+          async tx => {
+            const test = await tx.quizTest.findUnique({ where: { slug: request.params.slug } })
+            if (!test) throw notFound('TEST_NOT_FOUND', 'Test not found')
+            if (test.status === 'withdrawn') return
+            if (test.status !== 'published')
+              throw conflict('TEST_NOT_PUBLISHED', 'Test is not published')
+            const now = new Date()
+            await tx.quizTest.update({
+              where: { id: test.id },
+              data: {
+                status: 'withdrawn',
+                withdrawnBy: request.user!.id,
+                withdrawnAt: now,
+                withdrawalReason: request.body.reason,
+              },
+            })
+            await tx.auditLog.create({
+              data: {
+                actorId: request.user!.id,
+                action: 'quiz.test.withdraw',
+                target: `quizTest:${test.id}`,
+                requestId: request.id,
+                ipAddress: request.ip,
+                payload: { reason: request.body.reason, withdrawnAt: now.toISOString() },
               },
             })
           },
@@ -305,45 +387,99 @@ export const quizRoutes: FastifyPluginAsyncZod = async app => {
     '/tests/:slug/start',
     { schema: { params: slugParam }, preHandler: [app.requireAuth] },
     async request => {
-      const test = await prisma.quizTest.findUnique({
-        where: { slug: request.params.slug },
-        include: { items: { include: { question: true }, orderBy: { orderIndex: 'asc' } } },
-      })
-      if (!test || !eligible(test)) throw notFound('TEST_NOT_FOUND', 'Test not found')
-      const existing = await prisma.quizAttempt.findFirst({
-        where: { testId: test.id, userId: request.user!.id, submittedAt: null },
-        orderBy: { startedAt: 'desc' },
-      })
-      if (existing) return { attemptId: existing.id, resumed: true }
-      const id = randomUUID()
-      const seed = attemptSeed(id, test.id)
-      const items = test.randomizeOrder ? seededShuffle(seed, 'questions', test.items) : test.items
-      await prisma.quizAttempt.create({
-        data: {
-          id,
-          testId: test.id,
-          userId: request.user!.id,
-          seed,
-          responses: {
-            create: items.map((item, index) => {
-              const payload = item.question.payload as { options?: unknown[] }
-              return {
-                questionId: item.questionId,
-                presentedOrder: index,
-                optionOrderShown:
-                  test.randomizeOptions && payload.options
-                    ? seededPermutationIndices(seed, item.questionId, payload.options.length)
-                    : (payload.options?.map((_, i) => i) ?? []),
-                answerPayload: {},
-                firstShownAt: new Date(),
-                lastChangedAt: new Date(),
-                totalTimeSeconds: 0,
-              }
-            }),
-          },
-        },
-      })
-      return { attemptId: id, resumed: false }
+      const userId = request.user!.id
+      const test = await prisma.quizTest.findUnique({ where: { slug: request.params.slug } })
+      if (!test || test.status !== 'published') throw notFound('TEST_NOT_FOUND', 'Test not found')
+      try {
+        return await withSerializationRetry(() =>
+          prisma.$transaction(
+            async tx => {
+              const current = await tx.quizTest.findUnique({
+                where: { id: test.id },
+                include: { items: { include: { question: true }, orderBy: { orderIndex: 'asc' } } },
+              })
+              if (!current || !eligible(current)) throw notFound('TEST_NOT_FOUND', 'Test not found')
+              const existing = await tx.quizAttempt.findFirst({
+                where: { activeKey: `${current.id}:${userId}` },
+              })
+              if (existing) return { attemptId: existing.id, resumed: true }
+              const section = z
+                .array(
+                  z.object({
+                    scoringPolicy: z.object({
+                      marksPerCorrect: z.number(),
+                      negativeMarks: z.number(),
+                    }),
+                  })
+                )
+                .parse(current.sections)[0]!
+              const id = randomUUID()
+              const seed = attemptSeed(id, current.id)
+              const startedAt = new Date()
+              const items = current.randomizeOrder
+                ? seededShuffle(seed, 'questions', current.items)
+                : current.items
+              await tx.quizAttempt.create({
+                data: {
+                  id,
+                  testId: current.id,
+                  userId,
+                  seed,
+                  activeKey: `${current.id}:${userId}`,
+                  startedAt,
+                  deadlineAt: new Date(startedAt.getTime() + current.durationMinutes * 60_000),
+                  responses: {
+                    create: items.map((item, index) => {
+                      const payload = item.question.payload as { options?: unknown[] }
+                      return {
+                        questionId: item.questionId,
+                        presentedOrder: index,
+                        optionOrderShown:
+                          current.randomizeOptions && payload.options
+                            ? seededPermutationIndices(
+                                seed,
+                                item.questionId,
+                                payload.options.length
+                              )
+                            : (payload.options?.map((_, i) => i) ?? []),
+                        scoringSnapshot: {
+                          type: item.question.type,
+                          stemMd: item.question.stemMd,
+                          payload: item.question.payload,
+                          scoringPolicy: section.scoringPolicy,
+                        } as Prisma.InputJsonValue,
+                        answerPayload: {},
+                        firstShownAt: new Date(),
+                        lastChangedAt: new Date(),
+                        totalTimeSeconds: 0,
+                      }
+                    }),
+                  },
+                },
+              })
+              await tx.auditLog.create({
+                data: {
+                  actorId: userId,
+                  action: 'quiz.attempt.start',
+                  target: `quizAttempt:${id}`,
+                  requestId: request.id,
+                  ipAddress: request.ip,
+                  payload: { testId: current.id },
+                },
+              })
+              return { attemptId: id, resumed: false }
+            },
+            { isolationLevel: 'Serializable' }
+          )
+        )
+      } catch (error) {
+        if ((error as { code?: string }).code !== 'P2002') throw error
+        const existing = await prisma.quizAttempt.findFirst({
+          where: { activeKey: `${test.id}:${userId}` },
+        })
+        if (!existing) throw error
+        return { attemptId: existing.id, resumed: true }
+      }
     }
   )
 
@@ -352,28 +488,28 @@ export const quizRoutes: FastifyPluginAsyncZod = async app => {
     { schema: { params: idParam }, preHandler: [app.requireAuth] },
     async request => {
       const a = await ownedAttempt(request.params.id, request.user!.id)
-      if (!a.submittedAt && Date.now() >= deadline(a.startedAt, a.test.durationMinutes)) {
+      if (!a.submittedAt && Date.now() >= deadline(a.deadlineAt)) {
         await finalize(a.id, request.user!.id, true)
         return { submitted: true, remainingMs: 0, questions: [] }
       }
       return {
         submitted: !!a.submittedAt,
-        remainingMs: Math.max(0, deadline(a.startedAt, a.test.durationMinutes) - Date.now()),
+        serverNow: new Date().toISOString(),
+        remainingMs: Math.max(0, deadline(a.deadlineAt) - Date.now()),
         title: a.test.title,
         questions: a.submittedAt
           ? []
-          : a.responses.map(r => ({
-              questionId: r.questionId,
-              type: r.question.type,
-              stemMd: r.question.stemMd,
-              payload: projectPublicPayload(
-                r.question.type,
-                r.question.payload,
-                r.optionOrderShown
-              ),
-              answer: r.answerPayload,
-              presentedOrder: r.presentedOrder,
-            })),
+          : a.responses.map(r => {
+              const snapshot = frozen(r.scoringSnapshot)
+              return {
+                questionId: r.questionId,
+                type: snapshot.type,
+                stemMd: snapshot.stemMd,
+                payload: projectPublicPayload(snapshot.type, snapshot.payload, r.optionOrderShown),
+                answer: r.answerPayload,
+                presentedOrder: r.presentedOrder,
+              }
+            }),
       }
     }
   )
@@ -386,18 +522,19 @@ export const quizRoutes: FastifyPluginAsyncZod = async app => {
     },
     async request => {
       const a = await ownedAttempt(request.params.id, request.user!.id)
-      if (a.submittedAt || Date.now() >= deadline(a.startedAt, a.test.durationMinutes)) {
+      if (a.submittedAt || Date.now() >= deadline(a.deadlineAt)) {
         throw conflict('ATTEMPT_CLOSED', 'Attempt is closed')
       }
       const r = a.responses.find(row => row.questionId === request.body.questionId)
       if (!r) throw badRequest('QUESTION_NOT_IN_ATTEMPT', 'Question is not in this attempt')
+      const snapshot = frozen(r.scoringSnapshot)
       const answer = request.body.answer
-      if (r.question.type === 'MCQ_SINGLE') {
-        const options = (r.question.payload as { options: { id: string }[] }).options
+      if (snapshot.type === 'MCQ_SINGLE') {
+        const options = (snapshot.payload as { options: { id: string }[] }).options
         if (!('selected' in answer) || !options.some(o => o.id === answer.selected)) {
           throw badRequest('INVALID_ANSWER', 'Select an available option')
         }
-      } else if (r.question.type === 'TRUE_FALSE' && !('value' in answer)) {
+      } else if (snapshot.type === 'TRUE_FALSE' && !('value' in answer)) {
         throw badRequest('INVALID_ANSWER', 'Select true or false')
       }
       // Serializable transaction makes save versus finalization obey one order.
@@ -405,10 +542,7 @@ export const quizRoutes: FastifyPluginAsyncZod = async app => {
         prisma.$transaction(
           async tx => {
             const current = await tx.quizAttempt.findUniqueOrThrow({ where: { id: a.id } })
-            if (
-              current.submittedAt ||
-              Date.now() >= deadline(current.startedAt, a.test.durationMinutes)
-            ) {
+            if (current.submittedAt || Date.now() >= deadline(current.deadlineAt)) {
               throw conflict('ATTEMPT_CLOSED', 'Attempt is closed')
             }
             await tx.quizResponse.update({
@@ -443,10 +577,10 @@ export const quizRoutes: FastifyPluginAsyncZod = async app => {
       const a = await ownedAttempt(request.params.id, request.user!.id)
       if (!a.submittedAt) await finalize(a.id, request.user!.id, true)
       const final = await ownedAttempt(a.id, request.user!.id)
-      const policy = z
-        .array(z.object({ scoringPolicy: z.object({ marksPerCorrect: z.number() }) }))
-        .parse(final.test.sections)[0]
-      const maxScore = final.responses.length * (policy?.scoringPolicy.marksPerCorrect ?? 1)
+      const maxScore = final.responses.reduce(
+        (sum, response) => sum + frozen(response.scoringSnapshot).scoringPolicy.marksPerCorrect,
+        0
+      )
       return {
         title: final.test.title,
         rawScore: final.rawScore,

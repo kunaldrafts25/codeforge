@@ -64,6 +64,9 @@ export default function ProblemsPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
+      <p role="status" className="mb-5 rounded border border-amber-500 p-3">
+        Coding submissions are unavailable during the aptitude pilot.
+      </p>
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
         <h1 className="text-3xl font-bold">Problems</h1>
 

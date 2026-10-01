@@ -31,7 +31,8 @@ const ConfigSchema = z
     ADMIN_URL: z.string().url().default('http://localhost:3001'),
     PUBLIC_API_URL: z.string().url().default('http://localhost:5000'),
 
-    EMAIL_PROVIDER: z.enum(['console', 'resend']).default('console'),
+    EMAIL_PROVIDER: z.enum(['console', 'resend', 'sandbox']).default('console'),
+    MAIL_SANDBOX_URL: z.string().url().optional(),
     RESEND_API_KEY: z.string().optional(),
     EMAIL_FROM: z.string().default('CodeForge <no-reply@example.com>'),
 

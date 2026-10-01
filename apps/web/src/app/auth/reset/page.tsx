@@ -1,12 +1,22 @@
 'use client'
 
-import { Suspense, useState, type FormEvent } from 'react'
+import { Suspense, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 
 function ResetForm() {
-  const token = useSearchParams().get('token')
+  const queryToken = useSearchParams().get('token')
+  const [token, setToken] = useState<string | null>(null)
+  const [ready, setReady] = useState(false)
+  const fragmentRef = useRef<string | null>(null)
+  useEffect(() => {
+    const fragmentToken = new URLSearchParams(window.location.hash.slice(1)).get('token')
+    if (fragmentToken) fragmentRef.current = fragmentToken
+    setToken(fragmentRef.current ?? queryToken)
+    if (fragmentToken) window.history.replaceState(null, '', window.location.pathname)
+    setReady(true)
+  }, [queryToken])
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [message, setMessage] = useState('')
@@ -100,7 +110,7 @@ function ResetForm() {
           {message}
         </p>
       )}
-      {!token && (
+      {ready && !token && (
         <p role="alert" className="mt-4">
           Reset link is missing.{' '}
           <Link href="/auth/forgot-password" className="text-primary underline">

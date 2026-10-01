@@ -1,22 +1,36 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 
 function VerifyInner() {
-  const params = useSearchParams()
-  const token = params.get('token')
+  const queryToken = useSearchParams().get('token')
+  const [token, setToken] = useState<string | null>(null)
+  const [ready, setReady] = useState(false)
   const [state, setState] = useState<'pending' | 'ok' | 'err'>('pending')
   const [message, setMessage] = useState('')
+  const lastToken = useRef<string | null>(null)
+  const fragmentRef = useRef<string | null>(null)
 
   useEffect(() => {
+    const fragmentToken = new URLSearchParams(window.location.hash.slice(1)).get('token')
+    if (fragmentToken) fragmentRef.current = fragmentToken
+    setToken(fragmentRef.current ?? queryToken)
+    if (fragmentToken) window.history.replaceState(null, '', window.location.pathname)
+    setReady(true)
+  }, [queryToken])
+
+  useEffect(() => {
+    if (!ready) return
     if (!token) {
       setState('err')
       setMessage('Missing token')
       return
     }
+    if (lastToken.current === token) return
+    lastToken.current = token
     void api
       .post('/auth/verify-email', { token })
       .then(() => setState('ok'))
@@ -24,7 +38,7 @@ function VerifyInner() {
         setState('err')
         setMessage(err.response?.data?.error?.message ?? 'Verification failed')
       })
-  }, [token])
+  }, [token, ready])
 
   return (
     <div className="max-w-md text-center">

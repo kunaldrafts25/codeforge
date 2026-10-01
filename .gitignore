@@ -1,5 +1,7 @@
 node_modules
 .pnpm-store
+/PRODELIVERY.md
+/docs/delivery/
 .turbo
 .next
 dist
@@ -31,6 +33,8 @@ Thumbs.db
 # Test artifacts
 *.tsbuildinfo
 next-env.d.ts
+playwright-report/
+test-results/
 
 # Prisma generated client
 packages/db/node_modules/.prisma

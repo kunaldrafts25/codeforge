@@ -19,11 +19,11 @@ export default function Home() {
       <section className="py-24 px-4 relative">
         <div className="max-w-6xl mx-auto text-center">
           <h1 className="text-5xl md:text-6xl font-bold mb-6 bg-gradient-to-r from-primary via-emerald-400 to-teal-400 bg-clip-text text-transparent">
-            Code. Compete. Conquer.
+            CodeForge aptitude pilot
           </h1>
           <p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
-            Join MIT-ADT&apos;s premier competitive programming platform. Sharpen your skills,
-            compete in contests, and climb the leaderboard.
+            Take reviewed objective assessments with saved answers, a server timer, and a private
+            result. Coding submissions and contests are unavailable during this pilot.
           </p>
           <div className="flex gap-4 justify-center flex-wrap">
             <Link
@@ -34,10 +34,10 @@ export default function Home() {
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </Link>
             <Link
-              href="/problems"
+              href="/aptitude"
               className="px-6 py-3 border border-border rounded-lg font-medium hover:bg-accent hover:border-primary/50 transition-all duration-300 backdrop-blur-sm bg-background/50"
             >
-              Browse Problems
+              Browse aptitude tests
             </Link>
           </div>
         </div>
@@ -50,31 +50,19 @@ export default function Home() {
           <div className="grid md:grid-cols-3 gap-8">
             <FeatureCard
               icon={<Code2 className="w-8 h-8" />}
-              title="Practice Problems"
-              description="Curated problems across all difficulty levels to sharpen your skills."
+              title="Reviewed questions"
+              description="A separate staff reviewer approves each pilot test before candidates can start."
             />
             <FeatureCard
               icon={<Trophy className="w-8 h-8" />}
-              title="Live Contests"
-              description="Compete in real-time contests with students from MIT-ADT."
+              title="Reliable progress"
+              description="Answers save to the server and remain available after a browser reload."
             />
             <FeatureCard
               icon={<Users className="w-8 h-8" />}
-              title="Rating System"
-              description="Track your progress with our ELO-based rating system."
+              title="Private results"
+              description="Your score is available only in your account after submission or timeout."
             />
-          </div>
-        </div>
-      </section>
-
-      {/* Stats Section */}
-      <section className="py-16 px-4">
-        <div className="max-w-6xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-            <StatCard number="100+" label="Problems" />
-            <StatCard number="500+" label="Users" />
-            <StatCard number="50+" label="Contests" />
-            <StatCard number="10K+" label="Submissions" />
           </div>
         </div>
       </section>
@@ -98,15 +86,6 @@ function FeatureCard({
       </div>
       <h3 className="text-xl font-semibold mb-2">{title}</h3>
       <p className="text-muted-foreground">{description}</p>
-    </div>
-  )
-}
-
-function StatCard({ number, label }: { number: string; label: string }) {
-  return (
-    <div className="text-center p-6 rounded-xl bg-card/30 border border-border/30 backdrop-blur-sm">
-      <div className="text-3xl font-bold text-primary mb-1">{number}</div>
-      <div className="text-muted-foreground">{label}</div>
     </div>
   )
 }

@@ -38,6 +38,9 @@ const fixture = vi.hoisted(() => {
     status: 'draft',
     isAdaptive: false,
     proctorLevel: 'off',
+    requireWebcam: false,
+    requireFullscreen: false,
+    requireScreenShare: false,
     randomizeOrder: false,
     randomizeOptions: false,
     createdAt: new Date(),
@@ -72,8 +75,16 @@ const fixture = vi.hoisted(() => {
   })
   const prisma = {
     quizTest: {
-      findMany: async ({ where }: RecordLike) => (test.status === where.status ? [test] : []),
-      findUnique: async ({ where }: RecordLike) => (where.slug === test.slug ? test : null),
+      findMany: async ({ where }: RecordLike) =>
+        (
+          typeof where.status === 'string'
+            ? test.status === where.status
+            : where.status.in.includes(test.status)
+        )
+          ? [test]
+          : [],
+      findUnique: async ({ where }: RecordLike) =>
+        where.slug === test.slug || where.id === test.id ? test : null,
       update: async ({ data }: RecordLike) => {
         Object.assign(test, data)
         return test
@@ -93,6 +104,7 @@ const fixture = vi.hoisted(() => {
             (where.id === undefined || a.id === where.id) &&
             (where.userId === undefined || a.userId === where.userId) &&
             (where.testId === undefined || a.testId === where.testId) &&
+            (where.activeKey === undefined || a.activeKey === where.activeKey) &&
             (where.submittedAt === undefined || a.submittedAt === where.submittedAt)
         )
         return a ? hydrated(a) : null
@@ -108,7 +120,9 @@ const fixture = vi.hoisted(() => {
           testId: data.testId,
           userId: data.userId,
           seed: data.seed,
-          startedAt: new Date(),
+          activeKey: data.activeKey,
+          startedAt: data.startedAt,
+          deadlineAt: data.deadlineAt,
           submittedAt: null,
           rawScore: null,
         }
@@ -196,18 +210,21 @@ describe('fixed objective quiz journey', () => {
       method: 'POST',
       url: '/quiz/review/tests/sample-test/publish',
       headers: { 'x-role': 'REVIEWER', 'x-user-id': 'author' },
+      payload: { rightsConfirmed: true, license: 'Original work' },
     })
     expect(selfReview.statusCode).toBe(400)
     const publish = await app.inject({
       method: 'POST',
       url: '/quiz/review/tests/sample-test/publish',
       headers: { 'x-role': 'REVIEWER', 'x-user-id': 'reviewer' },
+      payload: { rightsConfirmed: true, license: 'Original work' },
     })
     expect(publish.statusCode).toBe(200)
     const repeated = await app.inject({
       method: 'POST',
       url: '/quiz/review/tests/sample-test/publish',
       headers: { 'x-role': 'REVIEWER', 'x-user-id': 'reviewer' },
+      payload: { rightsConfirmed: true, license: 'Original work' },
     })
     expect(repeated.statusCode).toBe(200)
     expect((await app.inject('/quiz/tests')).json()).toHaveLength(1)
@@ -218,6 +235,7 @@ describe('fixed objective quiz journey', () => {
       method: 'POST',
       url: '/quiz/review/tests/sample-test/publish',
       headers: { 'x-role': 'REVIEWER' },
+      payload: { rightsConfirmed: true, license: 'Original work' },
     })
     const start = await app.inject({
       method: 'POST',
@@ -306,10 +324,12 @@ describe('fixed objective quiz journey', () => {
       method: 'POST',
       url: '/quiz/review/tests/sample-test/publish',
       headers: { 'x-role': 'REVIEWER' },
+      payload: { rightsConfirmed: true, license: 'Original work' },
     })
     const id = (await app.inject({ method: 'POST', url: '/quiz/tests/sample-test/start' })).json()
       .attemptId as string
     fixture.attempts.get(id)!.startedAt = new Date(Date.now() - 6 * 60_000)
+    fixture.attempts.get(id)!.deadlineAt = new Date(Date.now() - 60_000)
     const answer = await app.inject({
       method: 'PUT',
       url: `/quiz/attempts/${id}/answer`,

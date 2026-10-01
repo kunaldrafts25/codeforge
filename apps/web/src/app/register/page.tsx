@@ -63,8 +63,11 @@ export default function RegisterPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-2">Email</label>
+              <label htmlFor="register-email" className="block text-sm font-medium mb-2">
+                Email
+              </label>
               <input
+                id="register-email"
                 type="email"
                 value={formData.email}
                 onChange={e => updateField('email', e.target.value)}
@@ -75,8 +78,11 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2">Username</label>
+              <label htmlFor="register-username" className="block text-sm font-medium mb-2">
+                Username
+              </label>
               <input
+                id="register-username"
                 type="text"
                 value={formData.username}
                 onChange={e => updateField('username', e.target.value)}
@@ -87,8 +93,11 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2">Password</label>
+              <label htmlFor="register-password" className="block text-sm font-medium mb-2">
+                Password
+              </label>
               <input
+                id="register-password"
                 type="password"
                 value={formData.password}
                 onChange={e => updateField('password', e.target.value)}
@@ -99,8 +108,11 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2">Confirm Password</label>
+              <label htmlFor="register-confirm-password" className="block text-sm font-medium mb-2">
+                Confirm Password
+              </label>
               <input
+                id="register-confirm-password"
                 type="password"
                 value={formData.confirmPassword}
                 onChange={e => updateField('confirmPassword', e.target.value)}

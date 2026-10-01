@@ -67,6 +67,18 @@ function buildTests(slug: string, rows: { input: string; output: string; sample:
 }
 
 async function main() {
+  const databaseUrl = process.env.DATABASE_URL
+  if (
+    !databaseUrl ||
+    process.env.SEED_DISPOSABLE_DATABASE !== '1' ||
+    process.env.NODE_ENV === 'production'
+  ) {
+    throw new Error('Seed requires a disposable database and SEED_DISPOSABLE_DATABASE=1')
+  }
+  const host = new URL(databaseUrl).hostname
+  if (!['localhost', '127.0.0.1', 'postgres'].includes(host)) {
+    throw new Error('Seed is restricted to a local disposable PostgreSQL host')
+  }
   const seedPassword = process.env.SEED_ADMIN_PASSWORD
   if (!seedPassword || seedPassword.length < 16) {
     throw new Error(
@@ -74,10 +86,19 @@ async function main() {
     )
   }
   const adminPassword = await argon2.hash(seedPassword, { type: argon2.argon2id })
+  const reviewerSeedPassword = process.env.SEED_REVIEWER_PASSWORD
+  if (
+    !reviewerSeedPassword ||
+    reviewerSeedPassword.length < 16 ||
+    reviewerSeedPassword === seedPassword
+  ) {
+    throw new Error('SEED_REVIEWER_PASSWORD must be distinct and at least 16 characters')
+  }
+  const reviewerPassword = await argon2.hash(reviewerSeedPassword, { type: argon2.argon2id })
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@gfgmitadt.in' },
-    update: {},
+    update: { passwordHash: adminPassword },
     create: {
       email: 'admin@gfgmitadt.in',
       emailVerifiedAt: new Date(),
@@ -88,6 +109,19 @@ async function main() {
       role: 'SUPER_ADMIN',
       rating: 1500,
       maxRating: 1500,
+    },
+  })
+  await prisma.user.upsert({
+    where: { email: 'pilot-reviewer@codeforge.test' },
+    update: { passwordHash: reviewerPassword },
+    create: {
+      email: 'pilot-reviewer@codeforge.test',
+      emailVerifiedAt: new Date(),
+      username: 'pilot_reviewer',
+      displayName: 'Pilot reviewer',
+      passwordHash: reviewerPassword,
+      passwordAlgo: 'argon2id',
+      role: 'REVIEWER',
     },
   })
 
@@ -228,7 +262,7 @@ async function main() {
       update: {},
       create: {
         ...q,
-        authorId: 'seed:codeforge',
+        authorId: admin.id,
         difficultyBand: 'L1',
         status: 'DRAFT',
       },

@@ -70,6 +70,9 @@ export default function ContestsPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
+      <p role="status" className="mb-5 rounded border border-amber-500 p-3">
+        Contest registration, scoring, and standings are unavailable during the aptitude pilot.
+      </p>
       <h1 className="text-3xl font-bold mb-8">Contests</h1>
 
       <div className="flex gap-2 mb-6">

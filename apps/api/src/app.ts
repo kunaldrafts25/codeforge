@@ -84,7 +84,7 @@ export async function buildApp() {
 
   // CSRF — double-submit cookie pattern. Note: `@fastify/csrf-protection`
   // exposes the protection as `app.csrfProtection` (a fastify preHandler).
-  // We selectively apply it to non-auth state-changing requests via a hook.
+  // Apply it to every browser mutation, including login and password recovery.
   await app.register(csrf, {
     cookieKey: CSRF_COOKIE,
     cookieOpts: {
@@ -105,7 +105,6 @@ export async function buildApp() {
   app.addHook('preHandler', async (request, reply) => {
     const method = request.method.toUpperCase()
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return
-    if (request.url.startsWith('/api/auth/')) return
     // Fastify csrf-protection adds csrfProtection as a route-level hook; call
     // it directly. Throws 403 on failure.
     await app.csrfProtection.call(app, request, reply, () => undefined)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 
@@ -12,7 +12,13 @@ type Question = {
   answer: { selected?: string; value?: boolean }
   presentedOrder: number
 }
-type State = { submitted: boolean; remainingMs: number; title: string; questions: Question[] }
+type State = {
+  submitted: boolean
+  serverNow: string
+  remainingMs: number
+  title: string
+  questions: Question[]
+}
 
 export default function AttemptPage() {
   const { id } = useParams<{ id: string }>()
@@ -21,12 +27,17 @@ export default function AttemptPage() {
   const [remaining, setRemaining] = useState(0)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const pendingSave = useRef(false)
+  const answerRevision = useRef(0)
   const load = useCallback(async () => {
+    const revision = answerRevision.current
     const { data } = await api.get<State>(`/quiz/attempts/${id}`)
     if (data.submitted) {
       router.replace(`/aptitude/attempts/${id}/result`)
       return
     }
+    if (pendingSave.current || revision !== answerRevision.current) return
     setState(data)
     setRemaining(data.remainingMs)
   }, [id, router])
@@ -44,23 +55,41 @@ export default function AttemptPage() {
     }
   }, [load])
   async function answer(questionId: string, value: { selected: string } | { value: boolean }) {
+    if (pendingSave.current || busy) return
+    const previous = state?.questions.find(q => q.questionId === questionId)?.answer ?? {}
+    pendingSave.current = true
+    answerRevision.current++
+    setSaving(true)
+    setState(
+      current =>
+        current && {
+          ...current,
+          questions: current.questions.map(q =>
+            q.questionId === questionId ? { ...q, answer: value } : q
+          ),
+        }
+    )
     try {
       await api.put(`/quiz/attempts/${id}/answer`, { questionId, answer: value })
+      setError('')
+    } catch {
       setState(
         current =>
           current && {
             ...current,
             questions: current.questions.map(q =>
-              q.questionId === questionId ? { ...q, answer: value } : q
+              q.questionId === questionId ? { ...q, answer: previous } : q
             ),
           }
       )
-      setError('')
-    } catch {
       setError('Answer was not saved. Check your connection and try again.')
+    } finally {
+      pendingSave.current = false
+      setSaving(false)
     }
   }
   async function submit() {
+    if (pendingSave.current || busy) return
     setBusy(true)
     try {
       await api.post(`/quiz/attempts/${id}/submit`)
@@ -85,6 +114,9 @@ export default function AttemptPage() {
               {Math.ceil(remaining / 60_000)} min left
             </p>
           </div>
+          <p className="mb-4 text-sm text-muted-foreground">
+            Server time at last sync: {new Date(state.serverNow).toLocaleTimeString()}
+          </p>
           {state.questions.map((q, index) => (
             <fieldset key={q.questionId} className="border border-border rounded-lg p-5 mb-5">
               <legend className="font-semibold px-2">Question {index + 1}</legend>
@@ -96,7 +128,7 @@ export default function AttemptPage() {
                       type="radio"
                       name={q.questionId}
                       checked={q.answer.selected === option.id}
-                      disabled={remaining === 0}
+                      disabled={remaining === 0 || saving || busy}
                       onChange={() => void answer(q.questionId, { selected: option.id })}
                     />
                     <span>{option.text}</span>
@@ -112,7 +144,7 @@ export default function AttemptPage() {
                       type="radio"
                       name={q.questionId}
                       checked={q.answer.value === value}
-                      disabled={remaining === 0}
+                      disabled={remaining === 0 || saving || busy}
                       onChange={() => void answer(q.questionId, { value })}
                     />
                     <span>{value ? 'True' : 'False'}</span>
@@ -121,11 +153,11 @@ export default function AttemptPage() {
             </fieldset>
           ))}
           <button
-            disabled={busy}
+            disabled={busy || saving}
             onClick={() => void submit()}
             className="px-5 py-3 rounded-lg bg-primary text-primary-foreground disabled:opacity-50"
           >
-            {busy ? 'Submitting…' : 'Submit test'}
+            {saving ? 'Saving answer…' : busy ? 'Submitting…' : 'Submit test'}
           </button>
         </>
       )}

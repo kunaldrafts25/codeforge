@@ -16,7 +16,7 @@ type Test = {
 export default function TestIntro() {
   const { slug } = useParams<{ slug: string }>()
   const router = useRouter()
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
   const [test, setTest] = useState<Test | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -27,6 +27,7 @@ export default function TestIntro() {
       .catch(() => setError('Test unavailable.'))
   }, [slug])
   async function start() {
+    if (loading) return
     if (!user) {
       router.push('/login')
       return
@@ -59,11 +60,11 @@ export default function TestIntro() {
             time expires. This test does not use a webcam or screen recording.
           </p>
           <button
-            disabled={busy}
+            disabled={busy || loading}
             onClick={() => void start()}
             className="mt-6 px-5 py-3 rounded-lg bg-primary text-primary-foreground disabled:opacity-50"
           >
-            {busy ? 'Starting…' : 'Start test'}
+            {loading ? 'Checking session…' : busy ? 'Starting…' : 'Start test'}
           </button>
         </>
       )}

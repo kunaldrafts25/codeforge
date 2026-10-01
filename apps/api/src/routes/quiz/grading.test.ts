@@ -18,6 +18,15 @@ describe('objective grading and publication gate', () => {
     expect(publicPayload).toEqual({ options: [mcq.options[1], mcq.options[0]] })
     expect(JSON.stringify(publicPayload)).not.toContain('correctIds')
     expect(JSON.stringify(publicPayload)).not.toContain('explanation')
+    const tagged = projectPublicPayload(
+      'MCQ_SINGLE',
+      {
+        ...mcq,
+        options: [{ id: 'a', text: 'One', isCorrect: true, rationale: 'private' }],
+      },
+      [0]
+    )
+    expect(tagged).toEqual({ options: [{ id: 'a', text: 'One' }] })
   })
 
   it('scores selected options and applies negative marks only to answered questions', () => {

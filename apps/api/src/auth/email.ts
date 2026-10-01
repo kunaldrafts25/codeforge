@@ -37,11 +37,22 @@ export async function sendEmail(args: SendArgs): Promise<void> {
     await sendViaResend(args)
     return
   }
-  logger.info({ to: args.to, subject: args.subject, body: args.body }, '[email:console]')
+  if (config.EMAIL_PROVIDER === 'sandbox') {
+    if (config.NODE_ENV === 'production' || !config.MAIL_SANDBOX_URL)
+      throw new Error('Mail sandbox is unavailable')
+    const response = await fetch(new URL('/messages', config.MAIL_SANDBOX_URL), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    })
+    if (!response.ok) throw new Error(`Mail sandbox failed: ${response.status}`)
+    return
+  }
+  logger.info({ to: args.to, subject: args.subject }, '[email:console] body omitted')
 }
 
 export function buildVerifyEmail(token: string): SendArgs {
-  const link = `${config.FRONTEND_URL}/auth/verify?token=${token}`
+  const link = `${config.FRONTEND_URL}/auth/verify#token=${token}`
   return {
     to: '', // populated by caller
     subject: 'Verify your CodeForge email',
@@ -50,7 +61,7 @@ export function buildVerifyEmail(token: string): SendArgs {
 }
 
 export function buildPasswordResetEmail(token: string): SendArgs {
-  const link = `${config.FRONTEND_URL}/auth/reset?token=${token}`
+  const link = `${config.FRONTEND_URL}/auth/reset#token=${token}`
   return {
     to: '',
     subject: 'CodeForge password reset',

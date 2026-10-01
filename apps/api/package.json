@@ -8,8 +8,9 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
     "lint": "eslint src --ext .ts",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run --coverage"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json --noEmit",
+    "test": "vitest run --coverage",
+    "quiz:import": "tsx scripts/import-quiz-draft.ts"
   },
   "dependencies": {
     "@codeforge/db": "workspace:*",

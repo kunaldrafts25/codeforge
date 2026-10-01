@@ -519,9 +519,6 @@ model QuizQuestion {
 
   stemMd  String
   payload Json
-  sourceUrl String?
-  license   String?
-  rightsAttestedAt DateTime?
 
   difficultyBand   String
   estimatedSeconds Int      @default(60)
@@ -570,11 +567,6 @@ model QuizTest {
   requireFullscreen   Boolean  @default(true)
   requireScreenShare  Boolean  @default(false)
   status              String   @default("draft")
-  reviewedBy          String?
-  reviewedAt          DateTime?
-  withdrawnBy         String?
-  withdrawnAt         DateTime?
-  withdrawalReason    String?
   createdAt           DateTime @default(now())
 
   attempts QuizAttempt[]
@@ -599,10 +591,8 @@ model QuizAttempt {
   test                  QuizTest  @relation(fields: [testId], references: [id])
   userId                String
   user                  User      @relation(fields: [userId], references: [id])
-  activeKey             String?   @unique
   seed                  String
   startedAt             DateTime  @default(now())
-  deadlineAt            DateTime?
   submittedAt           DateTime?
   durationActualSeconds Int?
   rawScore              Float?
@@ -632,7 +622,6 @@ model QuizResponse {
   presentedOrder   Int
   optionOrderShown Int[]
   answerPayload    Json
-  scoringSnapshot  Json?
   isCorrect        Boolean?
   pointsAwarded    Float        @default(0)
   markedForReview  Boolean      @default(false)

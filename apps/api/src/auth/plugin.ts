@@ -21,6 +21,18 @@ async function readUserFromCookie(request: FastifyRequest): Promise<void> {
   if (!token) return
   try {
     const payload = verifyAccessToken(token)
+    if (!payload.sid) return
+    const session = await prisma.userSession.findUnique({
+      where: { id: payload.sid },
+      select: { userId: true, revokedAt: true, expiresAt: true },
+    })
+    if (
+      !session ||
+      session.userId !== payload.sub ||
+      session.revokedAt ||
+      session.expiresAt <= new Date()
+    )
+      return
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
       select: { id: true, email: true, username: true, role: true, isBanned: true },

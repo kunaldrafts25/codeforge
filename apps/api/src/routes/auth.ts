@@ -261,16 +261,11 @@ export const authRoutes: FastifyPluginAsyncZod = async app => {
       })
 
       // Issue tokens + session
-      const accessToken = signAccessToken({
-        sub: user.id,
-        username: user.username,
-        role: user.role,
-      })
       const refreshRaw = newOpaqueToken(48)
       const refreshHash = hashToken(refreshRaw)
       const refreshJwt = signRefreshToken({ sub: user.id, jti: refreshRaw })
 
-      await prisma.userSession.create({
+      const newSession = await prisma.userSession.create({
         data: {
           userId: user.id,
           refreshTokenHash: refreshHash,
@@ -278,6 +273,13 @@ export const authRoutes: FastifyPluginAsyncZod = async app => {
           userAgent: request.headers['user-agent'] ?? 'unknown',
           expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
         },
+      })
+
+      const accessToken = signAccessToken({
+        sub: user.id,
+        sid: newSession.id,
+        username: user.username,
+        role: user.role,
       })
 
       setAccessCookie(reply, accessToken)
@@ -335,9 +337,14 @@ export const authRoutes: FastifyPluginAsyncZod = async app => {
       // token. Reject it without treating that benign race as account theft.
       if (session.revokedAt) {
         if (
-          session.revokedReason !== 'rotated' ||
+          session.revokedReason === 'rotated' &&
           Date.now() - session.revokedAt.getTime() < 30_000
         ) {
+          // Another tab may already have stored the replacement cookies.
+          // Do not clear them in the stale response.
+          throw unauthorized('SESSION_REVOKED', 'Session was already refreshed')
+        }
+        if (session.revokedReason !== 'rotated') {
           clearAuthCookies(reply)
           throw unauthorized('SESSION_REVOKED', 'Session is no longer active')
         }
@@ -373,7 +380,7 @@ export const authRoutes: FastifyPluginAsyncZod = async app => {
       const newHash = hashToken(newRaw)
       const newJwt = signRefreshToken({ sub: user.id, jti: newRaw })
 
-      await prisma.$transaction(async tx => {
+      const newSession = await prisma.$transaction(async tx => {
         const claimed = await tx.userSession.updateMany({
           where: { id: session.id, revokedAt: null, expiresAt: { gt: new Date() } },
           data: { revokedAt: new Date(), revokedReason: 'rotated' },
@@ -381,7 +388,7 @@ export const authRoutes: FastifyPluginAsyncZod = async app => {
         if (claimed.count !== 1) {
           throw unauthorized('SESSION_REVOKED', 'Session is no longer active')
         }
-        await tx.userSession.create({
+        return tx.userSession.create({
           data: {
             userId: user.id,
             refreshTokenHash: newHash,
@@ -392,7 +399,12 @@ export const authRoutes: FastifyPluginAsyncZod = async app => {
         })
       })
 
-      const access = signAccessToken({ sub: user.id, username: user.username, role: user.role })
+      const access = signAccessToken({
+        sub: user.id,
+        sid: newSession.id,
+        username: user.username,
+        role: user.role,
+      })
       setAccessCookie(reply, access)
       setRefreshCookie(reply, newJwt)
 
