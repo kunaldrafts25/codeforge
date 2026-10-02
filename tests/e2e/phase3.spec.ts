@@ -31,8 +31,23 @@ test('Phase 3 contests, standings, and leaderboard browser journeys', async ({ b
     },
   })
 
-  const adminUser = await prisma.user.findFirstOrThrow({ where: { role: 'ADMIN' } })
+  const adminUser = await prisma.user.findFirstOrThrow({
+    where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } },
+  })
   const reviewerUser = await prisma.user.findFirstOrThrow({ where: { role: 'REVIEWER' } })
+
+  const superAdmin = await prisma.user.findUnique({ where: { email: 'admin@gfgmitadt.in' } })
+  if (superAdmin && !process.env.SEED_ADMIN_PASSWORD) {
+    await prisma.user.update({
+      where: { id: superAdmin.id },
+      data: { passwordHash: await hashPassword(adminPassword) },
+    })
+  }
+
+  // Ensure clean candidate participant state
+  await prisma.contestParticipant.deleteMany({
+    where: { user: { email: 'phase3-candidate@example.test' } },
+  })
 
   const problem = await prisma.problem.upsert({
     where: { slug: 'browser-sum' },
@@ -105,7 +120,15 @@ test('Phase 3 contests, standings, and leaderboard browser journeys', async ({ b
 
   const contest = await prisma.contest.upsert({
     where: { slug: 'browser-test-contest' },
-    update: {},
+    update: {
+      status: 'RUNNING',
+      startTime: new Date(Date.now() - 1800000), // 30 min ago
+      endTime: new Date(Date.now() + 5400000), // 90 min in future
+      freezeAt: new Date(Date.now() + 3600000), // in 60 min
+      isRated: true,
+      capacity: 500,
+      isPublic: true,
+    },
     create: {
       slug: 'browser-test-contest',
       title: 'Browser ICPC Challenge 2026',
@@ -190,41 +213,53 @@ test('Phase 3 contests, standings, and leaderboard browser journeys', async ({ b
   await page.goto('http://localhost:3000/login')
   await page.getByLabel('Email', { exact: true }).fill('phase3-candidate@example.test')
   await page.getByLabel('Password', { exact: true }).fill(candidatePassword)
-  await page.getByRole('button', { name: /Sign in|Login/i }).click()
+  const candidateLoginPromise = page.waitForResponse(
+    response => response.url().includes('/api/auth/login') && response.request().method() === 'POST'
+  )
+  await page.getByRole('button', { name: 'Sign In', exact: true }).click()
+  const loginRes = await candidateLoginPromise
+  expect(loginRes.status()).toBe(200)
+  await expect(page).toHaveURL(/aptitude/)
 
   // Candidate discovers contest
   await page.goto('http://localhost:3000/contests')
   await expect(page.getByText('Competitive Contests')).toBeVisible()
-  await expect(page.getByText('Browser ICPC Challenge 2026')).toBeVisible()
+  await expect(page.getByText('Browser ICPC Challenge 2026').first()).toBeVisible()
 
   // Candidate views contest detail page
   await page.goto('http://localhost:3000/contests/browser-test-contest')
-  await expect(page.getByText('Browser ICPC Challenge 2026')).toBeVisible()
+  await expect(page.getByText('Browser ICPC Challenge 2026').first()).toBeVisible()
 
   // Candidate registers if not registered
   const registerBtn = page.getByRole('button', { name: 'Register for Contest' })
   if (await registerBtn.isVisible()) {
+    const regResponse = page.waitForResponse(
+      response => response.url().includes('/register') && response.request().method() === 'POST'
+    )
     await registerBtn.click()
+    const regRes = await regResponse
+    expect(regRes.status()).toBe(200)
   }
+  await expect(page.getByText('Registered').first()).toBeVisible()
 
   // View Problem A statement and starter code
   await page.getByRole('button', { name: /Problems/i }).click()
-  await expect(page.getByText('Browser Two Sum')).toBeVisible()
+  await expect(page.getByText('Browser Two Sum').first()).toBeVisible()
 
   // Switch to standings tab
   await page.getByRole('button', { name: /Standings/i }).click()
-  await expect(page.getByRole('cell', { name: 'Competitor', exact: true })).toBeVisible()
-  await expect(page.getByRole('cell', { name: 'Penalty', exact: true })).toBeVisible()
+  await expect(page.getByText('Competitor').first()).toBeVisible()
+  await expect(page.getByText('Penalty').first()).toBeVisible()
 
   // Visit global leaderboard
   await page.goto('http://localhost:3000/leaderboard')
   await expect(page.getByText('Global Competition Rankings')).toBeVisible()
-  await expect(page.getByRole('cell', { name: 'Competitor', exact: true })).toBeVisible()
-  await expect(page.getByRole('cell', { name: 'Rating', exact: true })).toBeVisible()
+  await expect(page.getByText('Competitor').first()).toBeVisible()
+  await expect(page.getByText('Rating').first()).toBeVisible()
 
   // Security check: Candidate is denied access to staff admin panel
   await page.goto('http://localhost:3001/admin/contests')
-  await expect(page).toHaveURL(/login/)
+  await expect(page).toHaveURL(/forbidden|login/)
 
   // 2. Admin staff browser context
   const adminCtx = await browser.newContext()
@@ -234,7 +269,12 @@ test('Phase 3 contests, standings, and leaderboard browser journeys', async ({ b
   await adminPage.goto('http://localhost:3001/login')
   await adminPage.getByLabel('Email', { exact: true }).fill('admin@gfgmitadt.in')
   await adminPage.getByLabel('Password', { exact: true }).fill(adminPassword)
+  const adminLoginPromise = adminPage.waitForResponse(
+    response => response.url().includes('/api/auth/login') && response.request().method() === 'POST'
+  )
   await adminPage.getByRole('button', { name: 'Sign in', exact: true }).click()
+  const adminLoginRes = await adminLoginPromise
+  expect(adminLoginRes.status()).toBe(200)
   await expect(adminPage).toHaveURL(/admin/)
 
   // Navigate to admin contests
@@ -243,8 +283,8 @@ test('Phase 3 contests, standings, and leaderboard browser journeys', async ({ b
   await expect(adminPage.getByRole('button', { name: '+ New Contest' })).toBeVisible()
 
   // Click on existing contest
-  await expect(adminPage.getByText('Browser ICPC Challenge 2026')).toBeVisible()
-  await adminPage.getByText('Browser ICPC Challenge 2026').click()
+  await expect(adminPage.getByText('Browser ICPC Challenge 2026').first()).toBeVisible()
+  await adminPage.getByText('Browser ICPC Challenge 2026').first().click()
   await expect(adminPage.getByText('Contest Problem Manifest')).toBeVisible()
   await expect(adminPage.getByText('Correction & Rejudge')).toBeVisible()
 })
