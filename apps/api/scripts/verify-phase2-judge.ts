@@ -119,7 +119,7 @@ try {
       })
     )
   )
-  const cookies = await Promise.all(
+  const sessions = await Promise.all(
     users.map(async u => {
       const session = await prisma.userSession.create({
         data: {
@@ -127,18 +127,29 @@ try {
           refreshTokenHash: hash(randomUUID()),
           ipAddress: '127.0.0.1',
           userAgent: 'real-judge-verifier',
-          expiresAt: new Date(Date.now() + 3600000),
+          expiresAt: new Date(Date.now() + 2 * 3600000),
         },
       })
-      return `${ACCESS_COOKIE}=${signAccessToken({ sub: u.id, sid: session.id, username: u.username, role: u.role })}`
+      return session.id
     })
   )
   const csrf = await app.inject({ method: 'GET', url: '/api/auth/csrf' })
   const csrfCookie = csrf.cookies.map(c => `${c.name}=${c.value}`).join('; ')
-  const headers = (i: number) => ({
-    cookie: `${cookies[i]}; ${csrfCookie}`,
-    'x-csrf-token': csrf.json().csrfToken as string,
-  })
+  const headers = (i: number) => {
+    const user = users[i]!
+    // Keep normal short-lived access tokens. This long acceptance run issues
+    // a fresh test token for each request against the same real session.
+    const token = signAccessToken({
+      sub: user.id,
+      sid: sessions[i]!,
+      username: user.username,
+      role: user.role,
+    })
+    return {
+      cookie: `${ACCESS_COOKIE}=${token}; ${csrfCookie}`,
+      'x-csrf-token': csrf.json().csrfToken as string,
+    }
+  }
   const post = async (i: number, route: string, payload: unknown, expected = 200) => {
     const r = await app.inject({
       method: 'POST',

@@ -47,7 +47,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: phase2-judge-public-browser
-          path: test-results/**/*.png
+          path: judge-browser-evidence/**/*.png
           if-no-files-found: ignore
 
   lint:

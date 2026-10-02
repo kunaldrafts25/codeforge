@@ -36,6 +36,7 @@ Thumbs.db
 next-env.d.ts
 playwright-report/
 test-results/
+judge-browser-evidence/
 
 # Prisma generated client
 packages/db/node_modules/.prisma
