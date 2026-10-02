@@ -55,11 +55,31 @@ describe('phase two contracts', () => {
       'lambda',
       'extends',
       'interface',
+      'require',
+      'JSON',
+      'process',
+      'forgeArgs',
+      'forgeResult',
+      'module',
+      'Json',
       '__proto__',
       'x); system(1)',
       'λ',
     ])
       expect(PracticeSignature.safeParse({ ...sig, name }).success).toBe(false)
+    for (const name of [
+      'a',
+      'requireValue',
+      'JSONValue',
+      'processValue',
+      'forgeArgsValue',
+      'Z'.repeat(64),
+    ]) {
+      const accepted = PracticeSignature.parse({ ...sig, name })
+      for (const language of fixture.languages)
+        expect(generateStarter(accepted, language)).toContain(name)
+    }
+    expect(PracticeSignature.safeParse({ ...sig, name: 'Z'.repeat(65) }).success).toBe(false)
     expect(generateStarter(PracticeSignature.parse(sig), 'python')).toContain('(self)')
     expect(() => generateStarter(PracticeSignature.parse(sig), 'c')).toThrow()
   })
@@ -115,6 +135,34 @@ describe('phase two contracts', () => {
         mode: 'FUNCTIONAL',
         signature,
         cases: cases.map(c => ({ ...c, input: '[null,2]' })),
+      }).success
+    ).toBe(false)
+  })
+  it('refuses non-float tolerances and float checkers on non-double functions', () => {
+    for (const kind of ['exact', 'token'])
+      for (const field of ['absolute', 'relative'])
+        expect(
+          PracticePackage.safeParse({ ...fixture, checker: { kind, [field]: 0.1 } }).success
+        ).toBe(false)
+    expect(
+      PracticePackage.safeParse({
+        ...fixture,
+        checker: { kind: 'exact', absolute: 0, relative: 0 },
+      }).success
+    ).toBe(true)
+    expect(
+      PracticePackage.safeParse({ ...fixture, checker: { kind: 'float', absolute: 0.1 } }).success
+    ).toBe(true)
+    expect(PracticePackage.safeParse({ ...fixture, checker: { kind: 'float' } }).success).toBe(
+      false
+    )
+    expect(
+      PracticePackage.safeParse({
+        ...fixture,
+        mode: 'FUNCTIONAL',
+        signature: { name: 'echo', params: [], returns: { kind: 'prim', name: 'int' } },
+        cases: fixture.cases.map(c => ({ ...c, input: '[]', output: '1' })),
+        checker: { kind: 'float', absolute: 0.1 },
       }).success
     ).toBe(false)
   })

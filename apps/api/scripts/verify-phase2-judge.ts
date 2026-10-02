@@ -190,6 +190,41 @@ try {
     editorial: 'Read two integers and add them.',
     rightsBasis: 'Original acceptance fixture by CodeForge.',
   })
+  const versionCountBeforePolicyChecks = await prisma.practiceVersion.count()
+  for (const kind of ['exact', 'token'])
+    for (const field of ['absolute', 'relative'])
+      await post(
+        0,
+        '/staff/versions',
+        {
+          slug: 'review-invalid-policy',
+          package: { ...p, checker: { kind, [field]: 0.1 } },
+        },
+        400
+      )
+  for (const name of ['require', 'JSON', 'process'])
+    await post(
+      0,
+      '/staff/versions',
+      {
+        slug: 'review-invalid-name',
+        package: {
+          ...p,
+          mode: 'FUNCTIONAL',
+          signature: { name, params: [], returns: { kind: 'prim', name: 'int' } },
+          cases: p.cases.map(c => ({ ...c, input: '[]', output: '1' })),
+        },
+      },
+      400
+    )
+  assert.equal(await prisma.practiceVersion.count(), versionCountBeforePolicyChecks)
+  assert.equal(
+    await prisma.problem.count({ where: { slug: { startsWith: 'review-invalid-' } } }),
+    0
+  )
+  console.log(
+    JSON.stringify({ event: 'review.authoring_policy_passed', rejected: 7, persisted: 0 })
+  )
   const created = await post(0, '/staff/versions', { slug: 'real-judge-sum', package: p })
   const v = await prisma.practiceVersion.findUniqueOrThrow({ where: { id: created.id } })
   await post(

@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { Admin, PRACTICE_LANGUAGES, type PracticeSignature } from '@codeforge/shared'
+import {
+  Admin,
+  PRACTICE_LANGUAGES,
+  PRACTICE_RUNTIME_MEMORY_ALLOWANCE_KB,
+  type PracticeSignature,
+} from '@codeforge/shared'
 import dynamic from 'next/dynamic'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
@@ -22,6 +27,7 @@ type Problem = {
   starters: Partial<Record<string, string>>
   hints: string[]
   editorial: string
+  limits?: { timeMs: number; memoryKb: number; outputKb: number }
 }
 type Job = {
   id: string
@@ -287,6 +293,15 @@ export default function ProblemPage() {
           )}
         </section>
         <section aria-label="Code draft" className="min-w-0 space-y-3">
+          {problem.limits && (
+            <p>
+              Measured sandbox memory limit:{' '}
+              {problem.limits.memoryKb + PRACTICE_RUNTIME_MEMORY_ALLOWANCE_KB[language]} KiB{' '}
+              (includes {PRACTICE_RUNTIME_MEMORY_ALLOWANCE_KB[language]} KiB runtime allowance).
+              Memory verdicts use measured consumption; allocation exceptions below this limit are
+              runtime errors.
+            </p>
+          )}
           <label className="block">
             Language
             <select

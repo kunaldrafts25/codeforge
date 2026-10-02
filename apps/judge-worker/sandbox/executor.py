@@ -356,7 +356,13 @@ def run(request):
     finally:
         remove(cid)
     sys.stdout.write(json.dumps({'event': 'compiled'}) + '\n'); sys.stdout.flush()
-    command = {'cpp': ['/code/program'], 'python': ['python3', '-B', '/code/main.py'], 'javascript': ['node', '--max-old-space-size=' + str(max(16, limits['memoryKb'] // 1024)), '/code/main.js'], 'java': ['java', '-Xms16m', '-Xmx' + str(max(16, limits['memoryKb'] // 1024)) + 'm', '-XX:ActiveProcessorCount=1', '-cp', '/code', 'Main']}[language]
+    # The authoritative budget is measured whole-cgroup resident peak plus
+    # documented runtime allowance, NOT a separate problem-sized heap ceiling.
+    # Fixed virtual heap ceilings exceed every supported native memory ceiling;
+    # they reserve address space, not 8 GiB of physical memory. Allocation
+    # failures/aborts below the measured budget remain runtime errors; neither
+    # candidate stderr nor a generic exit code can establish MEMORY_LIMIT.
+    command = {'cpp': ['/code/program'], 'python': ['python3', '-B', '/code/main.py'], 'javascript': ['node', '--max-old-space-size=8192', '/code/main.js'], 'java': ['java', '-Xms16m', '-Xmx8192m', '-XX:ActiveProcessorCount=1', '-cp', '/code', 'Main']}[language]
     allowance = {'cpp': 65536, 'python': 65536, 'javascript': 131072, 'java': 196608}[language]
     cases = []
     for value in request['inputs']:

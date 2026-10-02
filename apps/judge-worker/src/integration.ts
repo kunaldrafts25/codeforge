@@ -191,3 +191,5 @@ console.log(
   })
 )
 await import('./limits.js')
+await import('./resource-regressions.js')
+await import('./review-regressions.js')

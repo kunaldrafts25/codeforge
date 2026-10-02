@@ -77,7 +77,7 @@ export async function verifyBoundary(): Promise<{
       await readFile(new URL('../../../packages/checker-lib/src/index.ts', import.meta.url), 'utf8')
     ),
     versions,
-    version: 'p2-host-pids-512-guest-controller-63-spawn-64-accounted-66-1',
+    version: 'p2-resident-memory-heap-headroom-typed-checkers-names-2',
   }
   // Executed only after the supervisor checks the kernel controls. Expected
   // results are outside the sandbox; no application secret is sent to it.

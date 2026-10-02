@@ -1,12 +1,13 @@
 import {
   PracticeSignature,
   PracticeLanguage,
+  PracticeComparison,
   validatePracticeValue,
   type PracticeType,
 } from '@codeforge/shared'
 import { CheckerFailure } from '@codeforge/checker-lib'
 
-export const HARNESS_VERSION = 'codeforge-functional-1'
+export const HARNESS_VERSION = 'codeforge-functional-2'
 const native = (t: PracticeType, language: 'cpp' | 'java'): string => {
   if (t.kind !== 'prim')
     return language === 'cpp'
@@ -101,9 +102,12 @@ export function compareFunction(
   signature: unknown,
   expected: string,
   actual: string,
-  tolerance: { absolute: number; relative: number }
+  rawPolicy: unknown
 ): boolean {
   const sig = PracticeSignature.parse(signature)
+  const parsed = PracticeComparison.safeParse(rawPolicy)
+  if (!parsed.success) throw new CheckerFailure('Invalid functional comparison policy')
+  const policy = parsed.data
   const jury: unknown = JSON.parse(expected)
   if (!validatePracticeValue(sig.returns, jury)) throw new CheckerFailure('Invalid functional jury')
   let value: unknown
@@ -114,11 +118,13 @@ export function compareFunction(
   }
   if (!validatePracticeValue(sig.returns, value)) return false
   const floating = (sig.returns.kind === 'prim' ? sig.returns : sig.returns.of).name === 'double'
+  if (policy.kind === 'float' && !floating)
+    throw new CheckerFailure('Functional float checking requires double return values')
   const equal = (a: unknown, b: unknown): boolean => {
     if (Array.isArray(a) && Array.isArray(b))
       return a.length === b.length && a.every((v, i) => equal(v, b[i]))
-    if (floating && typeof a === 'number' && typeof b === 'number')
-      return Math.abs(a - b) <= Math.max(tolerance.absolute, tolerance.relative * Math.abs(a))
+    if (policy.kind === 'float' && floating && typeof a === 'number' && typeof b === 'number')
+      return Math.abs(a - b) <= Math.max(policy.absolute, policy.relative * Math.abs(a))
     return a === b
   }
   return equal(jury, value)

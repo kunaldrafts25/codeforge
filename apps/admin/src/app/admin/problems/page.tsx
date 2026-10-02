@@ -385,18 +385,28 @@ export default function ProblemAuthoringPage() {
             <select
               className={css}
               value={p.checker.kind}
-              onChange={e =>
+              onChange={e => {
+                const kind = e.target.value as Package['checker']['kind']
                 setPackage({
                   ...p,
-                  checker: { ...p.checker, kind: e.target.value as Package['checker']['kind'] },
+                  checker: {
+                    kind,
+                    absolute: kind === 'float' ? p.checker.absolute || 0.000001 : 0,
+                    relative: kind === 'float' ? p.checker.relative : 0,
+                  },
                 })
-              }
+              }}
             >
               <option>exact</option>
               <option>token</option>
               <option>float</option>
             </select>
           </label>
+          <p className="text-sm text-slate-600">
+            {p.mode === 'FUNCTIONAL'
+              ? 'Exact and token compare typed results exactly, including string whitespace. Float allows tolerance for double results only.'
+              : 'Exact compares output bytes. Token ignores whitespace between tokens. Float compares numeric tokens with tolerance.'}
+          </p>
           {p.checker.kind === 'float' && (
             <fieldset>
               <legend>Finite numeric tolerances</legend>

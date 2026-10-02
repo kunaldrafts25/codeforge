@@ -2,6 +2,19 @@ import { z } from 'zod'
 
 export const PRACTICE_LANGUAGES = ['cpp', 'python', 'java', 'javascript'] as const
 export const PracticeLanguage = z.enum(PRACTICE_LANGUAGES)
+// Measured whole-sandbox peak includes the language/runtime and gVisor.
+export const PRACTICE_RUNTIME_MEMORY_ALLOWANCE_KB = {
+  cpp: 65536,
+  python: 65536,
+  javascript: 131072,
+  java: 196608,
+} as const
+// A portable signature uses the union of language and generated harness names.
+const harnessNames = new Set(
+  'require JSON process module exports Buffer global globalThis __filename __dirname forgeArgs forgeResult Json Main System'.split(
+    ' '
+  )
+)
 const reserved = new Set(
   'class public private protected static void int long double boolean bool char new return if else for while switch case default break continue throw throws try catch finally import package function var let const def pass self this super null None True False true false await async yield delete typeof instanceof in with main constructor __proto__ prototype eval arguments namespace template typename typedef using virtual override final constexpr consteval constinit auto unsigned signed short float struct union enum operator friend inline extern register volatile mutable explicit export noexcept decltype alignas alignof asm do goto sizeof static_assert thread_local dynamic_cast static_cast reinterpret_cast const_cast and or not xor bitand bitor compl and_eq or_eq xor_eq not_eq requires concept co_await co_return co_yield restrict lambda from as assert del elif except global is nonlocal raise match extends implements interface abstract native synchronized transient strictfp byte record sealed permits instanceof debugger of get set char8_t char16_t char32_t wchar_t typeid synchronized null pointer restrict register assert boolean instanceof native package throws transient strictfp Solution string vector toString hashCode getClass wait notify notifyAll equals clone finalize'.split(
     ' '
@@ -11,7 +24,7 @@ export const PracticeIdentifier = z
   .string()
   .max(64)
   .regex(/^[A-Za-z][A-Za-z0-9_]*$/)
-  .refine(v => !reserved.has(v), 'Reserved identifier')
+  .refine(v => !reserved.has(v) && !harnessNames.has(v), 'Reserved language or harness identifier')
 export const PracticePrimitive = z.enum(['int', 'long', 'double', 'bool', 'string'])
 export const PracticeType = z.union([
   z.object({ kind: z.literal('prim'), name: PracticePrimitive }).strict(),
@@ -84,6 +97,24 @@ const boundedText = z
   .string()
   .max(65536)
   .refine(v => new TextEncoder().encode(v).length <= 65536, 'UTF-8 byte limit exceeded')
+export const PracticeComparison = z
+  .object({
+    kind: z.enum(['exact', 'token', 'float']),
+    absolute: z.number().finite().nonnegative().max(0.1).default(0),
+    relative: z.number().finite().nonnegative().max(0.1).default(0),
+  })
+  .strict()
+  .superRefine((p, c) => {
+    if (
+      p.kind === 'float'
+        ? p.absolute === 0 && p.relative === 0
+        : p.absolute !== 0 || p.relative !== 0
+    )
+      c.addIssue({
+        code: 'custom',
+        message: 'Float requires positive tolerance; exact/token require zero tolerance',
+      })
+  })
 export const PracticePackage = z
   .object({
     title: z.string().trim().min(3).max(200),
@@ -107,13 +138,7 @@ export const PracticePackage = z
         outputKb: z.number().int().min(1).max(1024),
       })
       .strict(),
-    checker: z
-      .object({
-        kind: z.enum(['exact', 'token', 'float']),
-        absolute: z.number().finite().nonnegative().max(0.1).default(0),
-        relative: z.number().finite().nonnegative().max(0.1).default(0),
-      })
-      .strict(),
+    checker: PracticeComparison,
     cases: z
       .array(
         z
@@ -170,11 +195,16 @@ export const PracticePackage = z
         path: ['starters'],
         message: 'Starter language must be enabled',
       })
-    if (p.checker.kind === 'float' && p.checker.absolute === 0 && p.checker.relative === 0)
+    if (
+      p.checker.kind === 'float' &&
+      p.signature &&
+      (p.signature.returns.kind === 'prim' ? p.signature.returns : p.signature.returns.of).name !==
+        'double'
+    )
       c.addIssue({
         code: 'custom',
         path: ['checker'],
-        message: 'Positive floating tolerance required',
+        message: 'Functional float checking requires double return values',
       })
     if (new TextEncoder().encode(JSON.stringify(p)).length > 750000)
       c.addIssue({ code: 'custom', message: 'Package exceeds size limit' })

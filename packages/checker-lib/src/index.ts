@@ -13,6 +13,19 @@ function numeric(text: string): boolean {
 
 // Trusted comparator: jury output stays outside the candidate sandbox.
 export function compare(expected: string, actual: string, policy: Comparison): boolean {
+  const absolute = policy.absolute ?? 0
+  const relative = policy.relative ?? 0
+  if (
+    !['exact', 'token', 'float'].includes(policy.kind) ||
+    !Number.isFinite(absolute) ||
+    !Number.isFinite(relative) ||
+    absolute < 0 ||
+    relative < 0 ||
+    absolute > 0.1 ||
+    relative > 0.1 ||
+    (policy.kind === 'float' ? absolute + relative === 0 : absolute !== 0 || relative !== 0)
+  )
+    throw new CheckerFailure('Invalid comparison policy')
   if (Buffer.byteLength(expected) > 1024 * 1024 || Buffer.byteLength(actual) > 1024 * 1024)
     throw new CheckerFailure('Comparison exceeds configured bound')
   if (policy.kind === 'exact') return expected === actual
@@ -21,8 +34,6 @@ export function compare(expected: string, actual: string, policy: Comparison): b
   if (policy.kind === 'token')
     return jury.length === candidate.length && jury.every((t, i) => t === candidate[i])
   if (policy.kind !== 'float') throw new CheckerFailure('Unsupported checker')
-  const absolute = policy.absolute ?? 0
-  const relative = policy.relative ?? 0
   if (
     !Number.isFinite(absolute) ||
     !Number.isFinite(relative) ||

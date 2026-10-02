@@ -17,6 +17,9 @@ describe('trusted comparisons', () => {
     expect(compare('-1e2', '-100', { kind: 'float', relative: 0.001 })).toBe(true)
   })
   it('distinguishes checker/package failure from candidate wrong answer', () => {
+    for (const kind of ['exact', 'token'] as const)
+      for (const field of ['absolute', 'relative'])
+        expect(() => compare('1', '1.05', { kind, [field]: 0.1 })).toThrow(CheckerFailure)
     expect(() => compare('NaN', '1', { kind: 'float', absolute: 0.01 })).toThrow(CheckerFailure)
     expect(() => compare('1', '1', { kind: 'float', absolute: NaN })).toThrow(CheckerFailure)
     expect(() => compare('1', '1', { kind: 'float' })).toThrow(CheckerFailure)
