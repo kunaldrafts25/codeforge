@@ -155,7 +155,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @codeforge/db db:generate
       - run: pnpm exec playwright install --with-deps chromium
-      - name: Fresh-credential browser, PostgreSQL and restore journeys
-        run: |
-          bash scripts/verify-phase2-data.sh --browser
-          bash scripts/verify-phase3-data.sh --browser
+      - name: Phase 2 browser, PostgreSQL and restore journeys
+        run: bash scripts/verify-phase2-data.sh --browser
+      - name: Clean lingering server ports
+        if: always()
+        run: fuser -k 3000/tcp 3001/tcp 5000/tcp 8025/tcp 2>/dev/null || true
+      - name: Phase 3 browser, PostgreSQL and restore journeys
+        run: bash scripts/verify-phase3-data.sh --browser

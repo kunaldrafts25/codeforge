@@ -65,14 +65,14 @@ test('Phase 3 contests, standings, and leaderboard browser journeys', async ({ b
 
   // Switch to standings tab
   await page.getByRole('button', { name: /Standings/i }).click()
-  await expect(page.getByText('Competitor')).toBeVisible()
-  await expect(page.getByText('Penalty')).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'Competitor', exact: true })).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'Penalty', exact: true })).toBeVisible()
 
   // Visit global leaderboard
   await page.goto('http://localhost:3000/leaderboard')
   await expect(page.getByText('Global Competition Rankings')).toBeVisible()
-  await expect(page.getByText('Competitor')).toBeVisible()
-  await expect(page.getByText('Rating')).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'Competitor', exact: true })).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'Rating', exact: true })).toBeVisible()
 
   // 2. Admin staff browser context
   const adminCtx = await browser.newContext()
@@ -91,6 +91,7 @@ test('Phase 3 contests, standings, and leaderboard browser journeys', async ({ b
   await expect(adminPage.getByRole('button', { name: '+ New Contest' })).toBeVisible()
 
   // Click on existing contest
+  await expect(adminPage.getByText('Browser ICPC Challenge 2026')).toBeVisible()
   await adminPage.getByText('Browser ICPC Challenge 2026').click()
   await expect(adminPage.getByText('Contest Problem Manifest')).toBeVisible()
   await expect(adminPage.getByText('Correction & Rejudge')).toBeVisible()
