@@ -49,7 +49,7 @@ pnpm --filter @codeforge/api exec tsx scripts/verify-phase3-data.ts
 
 if [[ ${1:-} == '--browser' ]]; then
   export NODE_ENV=development
-  pnpm exec playwright test tests/e2e/phase3.spec.ts
+  PLAYWRIGHT_TEST_MATCH='**/phase3.spec.ts' pnpm exec playwright test tests/e2e/phase3.spec.ts
 fi
 
 # Test full pg_dump and pg_restore with Phase 3 fingerprint

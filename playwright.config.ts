@@ -2,7 +2,9 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './tests/e2e',
-  testMatch: ['**/phase1.spec.ts', '**/phase2-disabled.spec.ts'],
+  testMatch: process.env.PLAYWRIGHT_TEST_MATCH
+    ? process.env.PLAYWRIGHT_TEST_MATCH.split(',')
+    : ['**/phase1.spec.ts', '**/phase2-disabled.spec.ts', '**/phase3.spec.ts'],
   timeout: 180_000,
   expect: { timeout: 15_000 },
   workers: 1,

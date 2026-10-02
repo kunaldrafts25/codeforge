@@ -64,6 +64,12 @@ if (-not $SkipStatic) {
   Invoke-Phase3Checked { pnpm build }
 }
 
+if (-not $SkipBrowser) {
+  $env:NODE_ENV = 'development'
+  $env:PLAYWRIGHT_TEST_MATCH = '**/phase3.spec.ts'
+  Invoke-Phase3Checked { pnpm exec playwright test tests/e2e/phase3.spec.ts }
+}
+
 # Dump and restore verification
 docker compose -p $phase3Project -f docker-compose.phase2.yml exec -T postgres pg_dump -U phase2 -d $phase3Database -Fc --no-owner --no-privileges -f /tmp/phase3.dump
 if ($LASTEXITCODE -ne 0) { throw 'Database backup failed' }
@@ -75,5 +81,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Database restore failed' }
 $phase3SourceDigest = Get-Content -LiteralPath 'scripts/phase3-restore-fingerprint.sql' -Raw | docker compose -p $phase3Project -f docker-compose.phase2.yml exec -T postgres psql -U phase2 -d $phase3Database -At -v ON_ERROR_STOP=1
 $phase3RestoreDigest = Get-Content -LiteralPath 'scripts/phase3-restore-fingerprint.sql' -Raw | docker compose -p $phase3Project -f docker-compose.phase2.yml exec -T postgres psql -U phase2 -d $phase3Restore -At -v ON_ERROR_STOP=1
 if ($LASTEXITCODE -ne 0 -or ($phase3SourceDigest -join "`n") -cne ($phase3RestoreDigest -join "`n")) { throw 'Restored Phase 3 database does not match original database' }
+
+docker compose -p $phase3Project -f docker-compose.phase2.yml down
 
 Write-Output 'PASS: Phase 3 full verification, migrations, replay, dump, and restore fingerprint match.'
