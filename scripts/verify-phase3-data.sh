@@ -7,13 +7,13 @@ suffix="$(openssl rand -hex 16)"
 project="codeforge-phase3-$suffix"
 database="phase3_$suffix"
 restore="${database}_restore"
-export PHASE3_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
+export PHASE2_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
 compose=(docker compose -p "$project" -f docker-compose.phase2.yml)
 trap '"${compose[@]}" down' EXIT
 "${compose[@]}" up -d --wait postgres
 address="$("${compose[@]}" port postgres 5432)"
 [[ "$address" =~ ^127\.0\.0\.1:([0-9]+)$ ]] || { echo 'Expected disposable loopback port' >&2; exit 1; }
-printf -v DATABASE_URL 'postgresql://%s:%s@127.0.0.1:%s/%s' phase2 "$PHASE3_POSTGRES_PASSWORD" "${BASH_REMATCH[1]}" "$database"
+printf -v DATABASE_URL 'postgresql://%s:%s@127.0.0.1:%s/%s' phase2 "$PHASE2_POSTGRES_PASSWORD" "${BASH_REMATCH[1]}" "$database"
 export DATABASE_URL
 export NODE_ENV=test COOKIE_SECURE=false COOKIE_DOMAIN=localhost SEED_DISPOSABLE_DATABASE=1
 export JWT_SECRET="$(openssl rand -hex 32)" JWT_REFRESH_SECRET="$(openssl rand -hex 32)" CSRF_SECRET="$(openssl rand -hex 32)"
@@ -49,7 +49,7 @@ pnpm --filter @codeforge/api exec tsx scripts/verify-phase3-data.ts
 
 if [[ ${1:-} == '--browser' ]]; then
   export NODE_ENV=development
-  pnpm exec playwright test
+  pnpm exec playwright test tests/e2e/phase3.spec.ts
 fi
 
 # Test full pg_dump and pg_restore with Phase 3 fingerprint

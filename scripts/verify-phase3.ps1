@@ -8,12 +8,12 @@ function Invoke-Phase3Checked([scriptblock]$Action) {
 $phase3Database = 'phase3_' + [Guid]::NewGuid().ToString('N')
 $phase3Restore = $phase3Database + '_restore'
 $phase3Project = 'codeforge-' + $phase3Database.Replace('_', '-')
-$env:PHASE3_POSTGRES_PASSWORD = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
+$env:PHASE2_POSTGRES_PASSWORD = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
 Invoke-Phase3Checked { docker compose -p $phase3Project -f docker-compose.phase2.yml up -d --wait postgres }
 $phase3Address = docker compose -p $phase3Project -f docker-compose.phase2.yml port postgres 5432
 if ($LASTEXITCODE -ne 0 -or $phase3Address -notmatch '^127\.0\.0\.1:([0-9]+)$') { throw 'Disposable loopback endpoint unavailable' }
 $phase3Port = $Matches[1]
-$env:DATABASE_URL = 'postgresql://{0}:{1}@127.0.0.1:{2}/{3}' -f 'phase2', $env:PHASE3_POSTGRES_PASSWORD, $phase3Port, $phase3Database
+$env:DATABASE_URL = 'postgresql://{0}:{1}@127.0.0.1:{2}/{3}' -f 'phase2', $env:PHASE2_POSTGRES_PASSWORD, $phase3Port, $phase3Database
 $env:NODE_ENV = 'test'
 $env:JWT_SECRET = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
 $env:JWT_REFRESH_SECRET = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')

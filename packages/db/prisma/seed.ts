@@ -205,28 +205,26 @@ async function main() {
   const endTime = new Date(tomorrow)
   endTime.setHours(20, 0, 0, 0)
 
-  await prisma.contest.upsert({
-    where: { slug: 'weekly-contest-1' },
-    update: {},
-    create: {
-      slug: 'weekly-contest-1',
-      title: 'Weekly Contest #1',
-      description: 'First weekly contest of CodeForge! Test your skills.',
-      startTime: tomorrow,
-      endTime,
-      isRated: false,
-      isPublic: false,
-      status: 'DRAFT',
-      format: 'ICPC',
-      problems: {
-        create: [
-          { problemId: p2.id, label: 'A', points: 100 },
-          { problemId: p1.id, label: 'B', points: 200 },
-          { problemId: p3.id, label: 'C', points: 200 },
-        ],
-      },
-    },
-  })
+  const existingContest = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT "id" FROM "Contest" WHERE "slug" = 'weekly-contest-1' LIMIT 1
+  `
+  let contestId = existingContest[0]?.id
+  if (!contestId) {
+    const cid = 'c0000000-0000-0000-0000-000000000001'
+    await prisma.$executeRaw`
+      INSERT INTO "Contest" ("id", "slug", "title", "description", "format", "isRated", "isPublic", "status", "startTime", "endTime", "updatedAt")
+      VALUES (${cid}, 'weekly-contest-1', 'Weekly Contest #1', 'First weekly contest of CodeForge! Test your skills.', 'ICPC'::"ContestFormat", false, false, 'DRAFT'::"ContestStatus", ${tomorrow}, ${endTime}, CURRENT_TIMESTAMP)
+    `
+    contestId = cid
+    await prisma.contestProblem.createMany({
+      data: [
+        { contestId, problemId: p2.id, label: 'A', points: 100 },
+        { contestId, problemId: p1.id, label: 'B', points: 200 },
+        { contestId, problemId: p3.id, label: 'C', points: 200 },
+      ],
+      skipDuplicates: true,
+    })
+  }
 
   // Original demo items stay in draft until a different authorized reviewer
   // checks the wording, answer keys and rights in the admin review screen.
