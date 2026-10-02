@@ -49,6 +49,7 @@ function start(stage = '', jobId = '') {
     }
   )
   let pending = ''
+  let startupDiagnostic = 'unavailable'
   child.stdout!.on('data', (data: Buffer) => {
     pending += data.toString('utf8')
     const lines = pending.split('\n')
@@ -63,7 +64,21 @@ function start(stage = '', jobId = '') {
       }
     }
   })
-  child.stderr!.on('data', () => undefined)
+  child.stderr!.on('data', (data: Buffer) => {
+    // Only fixed trusted-boundary errors are suitable for public acceptance
+    // logs. Never forward arbitrary stderr, connection strings or payloads.
+    const text = data.toString('utf8')
+    const known = text.match(
+      /Error: (Trusted Docker control (?:failed|timeout)[^\r\n]{0,320}|Supervisor integrity mismatch|Pinned runsc mismatch|Toolchain version mismatch|Isolation probe failed|Guest process ceiling verification failed: [^\r\n]{0,320})/
+    )
+    if (known) startupDiagnostic = known[1]!
+    const databaseCode = text.match(/code: ['"](P\d{4})['"]/)
+    if (databaseCode) startupDiagnostic = databaseCode[1]!
+  })
+  child.on('exit', (code, signal) => {
+    if (code !== 0 && signal === null)
+      console.log(JSON.stringify({ event: 'judge.worker_exit', code, startupDiagnostic }))
+  })
   children.push(child)
   return child
 }
@@ -617,9 +632,11 @@ try {
   // Crash a live worker during the burst. PostgreSQL expiry/reconciliation
   // must recover its lease; surviving worker and restarted worker execute it.
   const crash = children.at(-2)!
-  const crashWorker = await until(
-    async () => notes.find(n => n.event === 'judge.ready' && n.pid === crash.pid) ?? null
-  )
+  const crashWorker = await until(async () => {
+    if (crash.exitCode !== null || crash.signalCode !== null)
+      throw new Error('Capacity worker exited before readiness; see bounded worker_exit metadata')
+    return notes.find(n => n.event === 'judge.ready' && n.pid === crash.pid) ?? null
+  })
   const interruptedLease = await until(() =>
     prisma.practiceJob.findFirst({
       where: {
