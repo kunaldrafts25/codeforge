@@ -1,6 +1,6 @@
 /* eslint-disable no-console -- Emit bounded acceptance metadata; never credentials or private payloads. */
 import assert from 'node:assert/strict'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, createHash } from 'node:crypto'
 import { prisma, enqueueContestSubmission, type Prisma } from '@codeforge/db'
 import { buildApp } from '../src/app.js'
 import { computeScoreboard, type ContestSubmissionEvent } from '../src/contests/scoring.js'
@@ -20,6 +20,16 @@ export async function runPhase3Verification() {
         email: `p3-admin-${runId}@example.test`,
         username: `p3_admin_${runId}`,
         role: 'ADMIN',
+        emailVerifiedAt: new Date(),
+        rating: 1500,
+      },
+    })
+
+    const reviewerUser = await prisma.user.create({
+      data: {
+        email: `p3-reviewer-${runId}@example.test`,
+        username: `p3_reviewer_${runId}`,
+        role: 'REVIEWER',
         emailVerifiedAt: new Date(),
         rating: 1500,
       },
@@ -52,7 +62,8 @@ export async function runPhase3Verification() {
         constraints: '1 <= N <= 100',
         difficultyBand: 'easy',
         authorId: adminUser.id,
-        isPublic: false,
+        isPublic: true,
+        status: 'PUBLISHED',
       },
     })
 
@@ -83,21 +94,26 @@ export async function runPhase3Verification() {
       rightsBasis: 'Original work',
     }
 
+    const pkgHash = createHash('sha256').update(JSON.stringify(pkg)).digest('hex')
     const version = await prisma.practiceVersion.create({
       data: {
         problemId: problem.id,
         number: 1,
         authorId: adminUser.id,
-        status: 'SEALED',
-        packageHash: 'sha256:dummyhashforphase3verificationpackage000000000000000000000000000',
+        reviewerId: reviewerUser.id,
+        status: 'PUBLISHED',
+        validation: { status: 'VALIDATED', passed: true },
+        approvedAt: new Date(),
+        publishedAt: new Date(),
+        packageHash: pkgHash,
         package: pkg as unknown as Prisma.InputJsonValue,
       },
     })
 
     // 3. Create Contest 1 (Rated)
-    const startTime = new Date(Date.now() - 3600000) // 1h ago
-    const endTime = new Date(Date.now() + 3600000) // 1h in future
-    const freezeTime = new Date(Date.now() - 600000) // 10 min ago
+    const startTime = new Date(Date.now() - 4 * 3600000) // 4h ago
+    const freezeTime = new Date(Date.now() - 3 * 3600000) // 3h ago
+    const endTime = new Date(Date.now() - 2.5 * 3600000) // 2.5h ago
 
     const contest1 = await prisma.contest.create({
       data: {
@@ -128,6 +144,7 @@ export async function runPhase3Verification() {
       },
     ]
 
+    const runtimePolicyHash = createHash('sha256').update('policy:gvisor-strict-v1').digest('hex')
     const mHash = computeManifestHash({
       contestId: contest1.id,
       revision: 1,
@@ -142,7 +159,7 @@ export async function runPhase3Verification() {
       scoringPolicy: 'icpc-binary-v1',
       ratingPolicy: 'codeforge-pairwise-elo-v1',
       problems: manifestProblems,
-      runtimePolicyHash: 'policy:gvisor-strict-v1',
+      runtimePolicyHash,
     })
 
     const manifest = await prisma.contestManifest.create({
@@ -160,8 +177,10 @@ export async function runPhase3Verification() {
         scoringPolicy: 'icpc-binary-v1',
         ratingPolicy: 'codeforge-pairwise-elo-v1',
         manifestHash: mHash,
-        runtimePolicyHash: 'policy:gvisor-strict-v1',
+        runtimePolicyHash,
         authorId: adminUser.id,
+        reviewerId: reviewerUser.id,
+        approvedAt: new Date(),
         problems: manifestProblems as unknown as Prisma.InputJsonValue,
         status: 'SEALED',
       },
@@ -244,6 +263,10 @@ export async function runPhase3Verification() {
       where: { id: sub0.submission.id },
       data: { state: 'FINISHED', verdict: 'ACCEPTED' },
     })
+    await prisma.practiceJob.update({
+      where: { id: sub0.job.id },
+      data: { state: 'TERMINAL', verdict: 'ACCEPTED' },
+    })
 
     const sub1_wa = await enqueueContestSubmission(prisma, {
       contestId: contest1.id,
@@ -261,6 +284,10 @@ export async function runPhase3Verification() {
     await prisma.contestSubmission.update({
       where: { id: sub1_wa.submission.id },
       data: { state: 'FINISHED', verdict: 'WRONG_ANSWER' },
+    })
+    await prisma.practiceJob.update({
+      where: { id: sub1_wa.job.id },
+      data: { state: 'TERMINAL', verdict: 'WRONG_ANSWER' },
     })
 
     const sub1_ac = await enqueueContestSubmission(prisma, {
@@ -280,6 +307,10 @@ export async function runPhase3Verification() {
       where: { id: sub1_ac.submission.id },
       data: { state: 'FINISHED', verdict: 'ACCEPTED' },
     })
+    await prisma.practiceJob.update({
+      where: { id: sub1_ac.job.id },
+      data: { state: 'TERMINAL', verdict: 'ACCEPTED' },
+    })
 
     const sub2_wa1 = await enqueueContestSubmission(prisma, {
       contestId: contest1.id,
@@ -298,6 +329,10 @@ export async function runPhase3Verification() {
       where: { id: sub2_wa1.submission.id },
       data: { state: 'FINISHED', verdict: 'WRONG_ANSWER' },
     })
+    await prisma.practiceJob.update({
+      where: { id: sub2_wa1.job.id },
+      data: { state: 'TERMINAL', verdict: 'WRONG_ANSWER' },
+    })
 
     const sub2_wa2 = await enqueueContestSubmission(prisma, {
       contestId: contest1.id,
@@ -315,6 +350,10 @@ export async function runPhase3Verification() {
     await prisma.contestSubmission.update({
       where: { id: sub2_wa2.submission.id },
       data: { state: 'FINISHED', verdict: 'WRONG_ANSWER' },
+    })
+    await prisma.practiceJob.update({
+      where: { id: sub2_wa2.job.id },
+      data: { state: 'TERMINAL', verdict: 'WRONG_ANSWER' },
     })
 
     // Compute live scoreboard
@@ -401,8 +440,8 @@ export async function runPhase3Verification() {
         title: 'Phase 3 Grand Prix Round 2',
         format: 'ICPC',
         status: 'ENDED',
-        startTime: new Date(endTime.getTime() + 3600000),
-        endTime: new Date(endTime.getTime() + 7200000),
+        startTime: new Date(Date.now() - 2 * 3600000),
+        endTime: new Date(Date.now() - 30 * 60000),
         isRated: true,
         capacity: 100,
         isPublic: true,
@@ -429,6 +468,28 @@ export async function runPhase3Verification() {
       },
     })
 
+    const sub0_c2 = await enqueueContestSubmission(prisma, {
+      contestId: contest2.id,
+      userId: c0_updated.id,
+      manifestId: manifest.id,
+      problemId: problem.id,
+      versionId: version.id,
+      problemLabel: 'A',
+      language: 'python',
+      source: 'print(5)',
+      idempotencyKey: `sub0-c2-${runId}`,
+      admittedAt: new Date(contest2.startTime.getTime() + 5 * 60000),
+      policy: dummyPolicy,
+    })
+    await prisma.contestSubmission.update({
+      where: { id: sub0_c2.submission.id },
+      data: { state: 'FINISHED', verdict: 'ACCEPTED' },
+    })
+    await prisma.practiceJob.update({
+      where: { id: sub0_c2.job.id },
+      data: { state: 'TERMINAL', verdict: 'ACCEPTED' },
+    })
+
     const subNew = await enqueueContestSubmission(prisma, {
       contestId: contest2.id,
       userId: newCompetitor.id,
@@ -445,6 +506,10 @@ export async function runPhase3Verification() {
     await prisma.contestSubmission.update({
       where: { id: subNew.submission.id },
       data: { state: 'FINISHED', verdict: 'ACCEPTED' },
+    })
+    await prisma.practiceJob.update({
+      where: { id: subNew.job.id },
+      data: { state: 'TERMINAL', verdict: 'ACCEPTED' },
     })
 
     const finalResult2 = await finalizeContest(contest2.id, adminUser.id, `final-2-${runId}`)
@@ -487,15 +552,12 @@ export async function runPhase3Verification() {
   }
 }
 
-// Self-run when invoked directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  runPhase3Verification()
-    .then(() => {
-      console.log('PASS: Phase 3 verification script finished successfully.')
-      process.exit(0)
-    })
-    .catch(err => {
-      console.error('FAIL: Phase 3 verification error:', err)
-      process.exit(1)
-    })
-}
+runPhase3Verification()
+  .then(() => {
+    console.log('PASS: Phase 3 verification script finished successfully.')
+    process.exit(0)
+  })
+  .catch(err => {
+    console.error('FAIL: Phase 3 verification error:', err)
+    process.exit(1)
+  })
