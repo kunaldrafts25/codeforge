@@ -1,6 +1,6 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
-import { z } from 'zod'
-import { prisma } from '@codeforge/db'
+import { prisma, Prisma as Sql } from '@codeforge/db'
+import { GlobalLeaderboardQuery, GlobalLeaderboardResponse } from '@codeforge/shared'
 
 export const leaderboardRoutes: FastifyPluginAsyncZod = async app => {
   app.get(
@@ -8,37 +8,25 @@ export const leaderboardRoutes: FastifyPluginAsyncZod = async app => {
     {
       schema: {
         tags: ['leaderboard'],
-        querystring: z.object({
-          page: z.coerce.number().int().min(1).default(1),
-          limit: z.coerce.number().int().min(1).max(100).default(50),
-        }),
-        response: {
-          200: z.object({
-            users: z.array(
-              z.object({
-                rank: z.number(),
-                userId: z.string(),
-                username: z.string(),
-                displayName: z.string().nullable(),
-                avatarUrl: z.string().nullable(),
-                rating: z.number(),
-                maxRating: z.number(),
-                problemsSolved: z.number(),
-                contestsCount: z.number(),
-              })
-            ),
-          }),
-        },
+        querystring: GlobalLeaderboardQuery,
+        response: { 200: GlobalLeaderboardResponse },
       },
     },
     async request => {
       const { page, limit } = request.query
       const skip = (page - 1) * limit
-      const users = await prisma.user.findMany({
-        where: { isBanned: false },
-        orderBy: { rating: 'desc' },
-        skip,
-        take: limit,
+      const asOfTime = new Date().toISOString()
+
+      // Include only users with at least one rated contest participation and not banned
+      const where = {
+        isBanned: false,
+        contestsCount: { gte: 1 },
+      }
+
+      // Fetch all eligible users for global competition rank calculation
+      const allEligible = await prisma.user.findMany({
+        where,
+        orderBy: [{ rating: 'desc' }, { id: 'asc' }],
         select: {
           id: true,
           username: true,
@@ -46,22 +34,83 @@ export const leaderboardRoutes: FastifyPluginAsyncZod = async app => {
           avatarUrl: true,
           rating: true,
           maxRating: true,
-          problemsSolved: true,
           contestsCount: true,
         },
       })
-      return {
-        users: users.map((u, i) => ({
-          rank: skip + i + 1,
+
+      const total = allEligible.length
+      if (total === 0) {
+        return {
+          users: [],
+          total: 0,
+          page,
+          totalPages: 1,
+          asOfTime,
+        }
+      }
+
+      // Compute competition ranks across the complete field (e.g. 1, 1, 3)
+      const rankedUsers: Array<{
+        rank: number
+        userId: string
+        username: string
+        displayName: string | null
+        avatarUrl: string | null
+        rating: number
+        maxRating: number
+        contestsCount: number
+        problemsSolved: number
+      }> = []
+
+      let currentRank = 1
+      for (let i = 0; i < allEligible.length; i++) {
+        const u = allEligible[i]!
+        let rank = currentRank
+        if (i > 0 && allEligible[i - 1]!.rating === u.rating) {
+          rank = rankedUsers[i - 1]!.rank
+        } else {
+          rank = i + 1
+        }
+        currentRank = i + 1
+
+        rankedUsers.push({
+          rank,
           userId: u.id,
           username: u.username,
           displayName: u.displayName,
           avatarUrl: u.avatarUrl,
           rating: u.rating,
           maxRating: u.maxRating,
-          problemsSolved: u.problemsSolved,
           contestsCount: u.contestsCount,
-        })),
+          problemsSolved: 0, // populated below from PracticeSolve
+        })
+      }
+
+      // Paginate
+      const paged = rankedUsers.slice(skip, skip + limit)
+      const userIds = paged.map(u => u.userId)
+
+      // Fetch actual practice solve counts from PracticeSolve (not stale problemsSolved)
+      if (userIds.length > 0) {
+        const solveCounts = await prisma.$queryRaw<{ ownerId: string; count: bigint }[]>(Sql.sql`
+          SELECT "ownerId", count(*) as count
+          FROM "PracticeSolve"
+          WHERE "ownerId" IN (${Sql.join(userIds)})
+          GROUP BY "ownerId"
+        `)
+
+        const solveMap = new Map(solveCounts.map(s => [s.ownerId, Number(s.count)]))
+        for (const user of paged) {
+          user.problemsSolved = solveMap.get(user.userId) ?? 0
+        }
+      }
+
+      return {
+        users: paged,
+        total,
+        page,
+        totalPages: Math.ceil(total / limit) || 1,
+        asOfTime,
       }
     }
   )

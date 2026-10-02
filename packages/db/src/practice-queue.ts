@@ -243,6 +243,12 @@ export async function reconcilePracticeJobs(db: PrismaClient) {
           where: { jobId: j.id },
           data: { deliveredAt: null, availableAt: new Date() },
         })
+      if (exhausted && j.scope === 'CONTEST') {
+        await tx.contestSubmission.updateMany({
+          where: { jobId: j.id },
+          data: { state: 'DEAD_LETTER', verdict: 'JUDGE_FAILURE' },
+        })
+      }
       await tx.auditLog.create({
         data: {
           action: exhausted ? 'practice.dead_letter' : 'practice.recover',
@@ -302,12 +308,12 @@ export async function completePracticeJob(
       },
     })
     const v = await tx.practiceVersion.findUniqueOrThrow({ where: { id: j.versionId } })
-    if (j.kind === 'SUBMIT') {
+    if (j.scope === 'PRACTICE' && j.kind === 'SUBMIT') {
       const accepted = await tx.$queryRaw<{ id: string }[]>`
         SELECT latest."id" FROM (
           SELECT DISTINCT ON (COALESCE(s."originJobId", s."id")) s."id", s."verdict"
           FROM "PracticeJob" s JOIN "PracticeVersion" v ON v."id" = s."versionId"
-          WHERE s."ownerId" = ${j.ownerId} AND v."problemId" = ${v.problemId} AND s."kind" = 'SUBMIT' AND s."state" = 'TERMINAL'
+          WHERE s."ownerId" = ${j.ownerId} AND v."problemId" = ${v.problemId} AND s."scope" = 'PRACTICE' AND s."kind" = 'SUBMIT' AND s."state" = 'TERMINAL'
           ORDER BY COALESCE(s."originJobId", s."id"), s."generation" DESC
         ) latest WHERE latest."verdict" = 'ACCEPTED' LIMIT 1`
       if (accepted[0])
@@ -318,6 +324,11 @@ export async function completePracticeJob(
         })
       else
         await tx.practiceSolve.deleteMany({ where: { ownerId: j.ownerId, problemId: v.problemId } })
+    } else if (j.scope === 'CONTEST') {
+      await tx.contestSubmission.updateMany({
+        where: { jobId: j.id },
+        data: { state: 'TERMINAL', verdict: result.verdict },
+      })
     }
     await tx.auditLog.create({
       data: {
@@ -362,6 +373,12 @@ export async function failPracticeLease(
         where: { jobId: j.id },
         data: { deliveredAt: null, availableAt: new Date() },
       })
+    if (exhausted && j.scope === 'CONTEST') {
+      await tx.contestSubmission.updateMany({
+        where: { jobId: j.id },
+        data: { state: 'DEAD_LETTER', verdict: 'JUDGE_FAILURE' },
+      })
+    }
     await tx.auditLog.create({
       data: {
         action: exhausted ? 'practice.dead_letter' : 'practice.retry',

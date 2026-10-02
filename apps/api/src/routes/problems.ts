@@ -62,7 +62,7 @@ export const problemRoutes: FastifyPluginAsyncZod = async app => {
         SELECT "problemId", count(*) AS total, count(*) FILTER (WHERE verdict='ACCEPTED') AS accepted FROM (
           SELECT DISTINCT ON (COALESCE(j."originJobId",j.id)) v."problemId", j.verdict
           FROM "PracticeJob" j JOIN "PracticeVersion" v ON v.id=j."versionId"
-          WHERE v."problemId" IN (${Sql.join(problems.map(p => p.id))}) AND j.kind='SUBMIT' AND j.state='TERMINAL'
+          WHERE v."problemId" IN (${Sql.join(problems.map(p => p.id))}) AND j.kind='SUBMIT' AND j.scope='PRACTICE' AND j.state='TERMINAL'
           ORDER BY COALESCE(j."originJobId",j.id), j.generation DESC
         ) latest GROUP BY "problemId"`)
         : []

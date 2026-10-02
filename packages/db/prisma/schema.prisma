@@ -86,6 +86,12 @@ model User {
   practiceReviews  PracticeVersion[] @relation("PracticeReviewer")
   practiceJobs     PracticeJob[]
   practiceSolves   PracticeSolve[]
+  authoredManifests    ContestManifest[]     @relation("ContestManifestAuthor")
+  reviewedManifests    ContestManifest[]     @relation("ContestManifestReviewer")
+  contestSubmissions   ContestSubmission[]
+  ratingLedgerEntries  ContestRatingLedger[]
+  contestDisputes      ContestDispute[]
+  resolvedDisputes     ContestDispute[]      @relation("DisputeResolver")
 
   @@index([rating(sort: Desc)])
   @@index([aptitudeScaled(sort: Desc)])
@@ -259,6 +265,7 @@ model Problem {
   dailyChallenges    DailyChallenge[]
   practiceVersions   PracticeVersion[]
   practiceSolves     PracticeSolve[]
+  contestSubmissions ContestSubmission[]
 
   @@index([status, isPublic])
   @@index([rating])
@@ -362,17 +369,27 @@ model Contest {
   startTime            DateTime
   endTime              DateTime
   freezeAtMinutes      Int?
+  freezeAt             DateTime?
+  capacity             Int           @default(1000)
   registrationOpensAt  DateTime?
   registrationClosesAt DateTime?
+  activeManifestId     String?
+  activeManifest       ContestManifest? @relation("ActiveContestManifest", fields: [activeManifestId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  problems      ContestProblem[]
-  participants  ContestParticipant[]
-  submissions   Submission[]
-  ratingChanges RatingChange[]
-  hacks         Hack[]
+  problems            ContestProblem[]
+  participants        ContestParticipant[]
+  submissions         Submission[]
+  ratingChanges       RatingChange[]
+  hacks               Hack[]
+  manifests           ContestManifest[]           @relation("ContestManifests")
+  contestSubmissions  ContestSubmission[]
+  scoreboardSnapshots ContestScoreboardSnapshot[]
+  ratingLedgerEntries ContestRatingLedger[]
+  disputes            ContestDispute[]
+  settlementJobs      ContestSettlementJob[]
 
   @@index([status, startTime])
 }
@@ -394,12 +411,17 @@ model ContestParticipant {
   userId         String
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   registeredAt   DateTime  @default(now())
-  isVirtual      Boolean   @default(false)
-  virtualStartAt DateTime?
-  score          Int       @default(0)
-  penalty        Int       @default(0)
-  rank           Int?
-  problemStates  Json      @default("{}")
+  isVirtual              Boolean   @default(false)
+  virtualStartAt         DateTime?
+  score                  Int       @default(0)
+  penalty                Int       @default(0)
+  rank                   Int?
+  problemStates          Json      @default("{}")
+  status                 String    @default("REGISTERED") // "REGISTERED" | "WITHDRAWN" | "DISQUALIFIED"
+  ratingAtRegistration   Int       @default(1500)
+  withdrawnAt            DateTime?
+  disqualifiedAt         DateTime?
+  disqualificationReason String?
 
   @@id([contestId, userId])
   @@index([contestId, rank])
@@ -489,6 +511,7 @@ model PracticeVersion {
   publishedAt DateTime?
   withdrawnAt DateTime?
   jobs        PracticeJob[]
+  contestSubmissions ContestSubmission[]
 
   @@unique([problemId, number])
   @@index([problemId, status])
@@ -526,11 +549,17 @@ model PracticeJob {
   startedAt      DateTime?
   finishedAt     DateTime?
   outbox         PracticeOutbox?
+  scope          String          @default("PRACTICE") // "PRACTICE" | "CONTEST"
+  contestId      String?
+  admittedAt     DateTime?
+  contestSubmission ContestSubmission?
 
   @@unique([ownerId, idempotencyKey])
   @@unique([originJobId, generation])
   @@index([state, availableAt])
   @@index([ownerId, createdAt(sort: Desc)])
+  @@index([scope, state])
+  @@index([contestId])
 }
 
 model PracticeOutbox {
@@ -582,6 +611,151 @@ model Hack {
   testBlobKey        String
   succeeded          Boolean
   createdAt          DateTime @default(now())
+}
+
+// ─── Phase 3: Contests, Manifests, Scoring & Rating Ledger ───────────────────
+
+model ContestManifest {
+  id                  String    @id @default(uuid())
+  contestId           String
+  contest             Contest   @relation("ContestManifests", fields: [contestId], references: [id], onDelete: Cascade)
+  revision            Int       @default(1)
+  title               String
+  slug                String
+  description         String?
+  startTime           DateTime
+  endTime             DateTime
+  registrationOpensAt DateTime
+  registrationClosesAt DateTime
+  freezeAt            DateTime?
+  capacity            Int       @default(1000)
+  isRated             Boolean   @default(false)
+  divisionMin         Int?
+  divisionMax         Int?
+  scoringPolicy       String    @default("icpc-binary-v1")
+  ratingPolicy        String    @default("codeforge-pairwise-elo-v1")
+  problems            Json      // array of { label, orderIndex, problemId, versionId, packageHash, points, title }
+  manifestHash        String
+  runtimePolicyHash   String
+  authorId            String
+  author              User      @relation("ContestManifestAuthor", fields: [authorId], references: [id])
+  reviewerId          String?
+  reviewer            User?     @relation("ContestManifestReviewer", fields: [reviewerId], references: [id])
+  status              String    @default("DRAFT") // "DRAFT" | "SEALED" | "SUPERSEDED"
+  approvedAt          DateTime?
+  createdAt           DateTime  @default(now())
+
+  activeForContests   Contest[] @relation("ActiveContestManifest")
+  submissions         ContestSubmission[]
+
+  @@unique([contestId, revision])
+  @@index([contestId, status])
+}
+
+model ContestSubmission {
+  id              String          @id @default(uuid())
+  contestId       String
+  contest         Contest         @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  manifestId      String
+  manifest        ContestManifest @relation(fields: [manifestId], references: [id])
+  problemId       String
+  problem         Problem         @relation(fields: [problemId], references: [id])
+  versionId       String
+  version         PracticeVersion @relation(fields: [versionId], references: [id])
+  problemLabel    String
+  language        String
+  source          String
+  sourceHash      String
+  idempotencyKey  String
+  admittedAt      DateTime        @default(now())
+  jobId           String          @unique
+  job             PracticeJob     @relation(fields: [jobId], references: [id])
+  state           String          @default("QUEUED")
+  verdict         String?
+  generation      Int             @default(1)
+  isAuthoritative Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+
+  @@unique([contestId, userId, idempotencyKey])
+  @@index([contestId, admittedAt])
+  @@index([contestId, problemLabel])
+  @@index([contestId, userId])
+}
+
+model ContestScoreboardSnapshot {
+  id          String   @id @default(uuid())
+  contestId   String
+  contest     Contest  @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  revision    Int      @default(1)
+  isFrozen    Boolean  @default(false)
+  asOfTime    DateTime @default(now())
+  payload     Json     // complete computed scoreboard entries
+  checksum    String   // SHA-256 of canonical payload
+  createdAt   DateTime @default(now())
+
+  @@unique([contestId, revision, isFrozen])
+  @@index([contestId, createdAt(sort: Desc)])
+}
+
+model ContestRatingLedger {
+  id              String   @id @default(uuid())
+  generation      Int      @default(1)
+  contestId       String
+  contest         Contest  @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  oldRating       Int
+  newRating       Int
+  delta           Int
+  rank            Int
+  performance     Int?
+  isAuthoritative Boolean  @default(true)
+  manifestHash    String
+  scoringHash     String
+  createdAt       DateTime @default(now())
+
+  @@unique([generation, contestId, userId])
+  @@index([userId, isAuthoritative])
+  @@index([contestId, generation])
+}
+
+model ContestDispute {
+  id               String    @id @default(uuid())
+  contestId        String
+  contest          Contest   @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type             String    // 'CHEATING_REPORT' | 'STATEMENT_AMBIGUITY' | 'TEST_FLAW' | 'SCORING_OBJECTION'
+  status           String    @default("OPEN") // 'OPEN' | 'INVESTIGATING' | 'RESOLVED_REJUDGE' | 'RESOLVED_DISQUALIFIED' | 'DISMISSED'
+  description      String
+  resolutionReason String?
+  resolvedById     String?
+  resolvedBy       User?     @relation("DisputeResolver", fields: [resolvedById], references: [id])
+  resolvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([contestId, status])
+}
+
+model ContestSettlementJob {
+  id          String    @id @default(uuid())
+  contestId   String
+  contest     Contest   @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  operationId String    @unique
+  type        String    // 'FINALIZE' | 'REPLAY' | 'CORRECTION'
+  state       String    @default("QUEUED") // 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED'
+  generation  Int       @default(1)
+  fence       Int       @default(0)
+  workerId    String?
+  errorReason String?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([contestId, state])
 }
 
 // ─── Aptitude: items, tests, sessions ─────────────────────────────────────────

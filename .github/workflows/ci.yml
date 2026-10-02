@@ -131,6 +131,18 @@ jobs:
       - name: Fresh-credential PostgreSQL lifecycle and restore
         run: bash scripts/verify-phase2-data.sh
 
+  phase3-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: '9.0.0', run_install: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - name: Fresh-credential PostgreSQL Phase 3 contest lifecycle, scoring, ratings, replay and restore
+        run: bash scripts/verify-phase3-data.sh
+
   e2e:
     runs-on: ubuntu-latest
     needs: [build]
@@ -144,4 +156,6 @@ jobs:
       - run: pnpm --filter @codeforge/db db:generate
       - run: pnpm exec playwright install --with-deps chromium
       - name: Fresh-credential browser, PostgreSQL and restore journeys
-        run: bash scripts/verify-phase2-data.sh --browser
+        run: |
+          bash scripts/verify-phase2-data.sh --browser
+          bash scripts/verify-phase3-data.sh --browser
