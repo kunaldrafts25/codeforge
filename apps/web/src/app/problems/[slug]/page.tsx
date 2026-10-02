@@ -51,6 +51,7 @@ export default function ProblemPage() {
   const [language, setLanguage] = useState<(typeof PRACTICE_LANGUAGES)[number]>('cpp')
   const [code, setCode] = useState('')
   const [loadedDraftKey, setLoadedDraftKey] = useState<string | null>(null)
+  const [loadedLanguageKey, setLoadedLanguageKey] = useState<string | null>(null)
   const [draftNotice, setDraftNotice] = useState('')
   const [customInput, setCustomInput] = useState('')
   const [error, setError] = useState('')
@@ -69,6 +70,8 @@ export default function ProblemPage() {
   const jobState = job?.state
   const draftKey =
     user && problem ? `codeforge:practice:${user.id}:${problem.id}:${language}` : null
+  const languageKey =
+    user && problem ? `codeforge:practice:${user.id}:${problem.id}:language` : null
   const starter = useCallback(() => {
     if (problem?.starters[language]) return problem.starters[language]!
     if (problem?.mode === 'FUNCTIONAL' && problem.signature)
@@ -118,6 +121,18 @@ export default function ProblemPage() {
 
   useEffect(() => {
     if (!problem || authLoading) return
+    try {
+      const saved = languageKey ? localStorage.getItem(languageKey) : null
+      if (saved && problem.languages.includes(saved as typeof language))
+        setLanguage(saved as typeof language)
+    } catch {
+      setDraftNotice('Browser storage is unavailable. Copy your code before leaving.')
+    }
+    setLoadedLanguageKey(languageKey)
+  }, [languageKey, problem, authLoading])
+
+  useEffect(() => {
+    if (!problem || authLoading || loadedLanguageKey !== languageKey) return
     setLoadedDraftKey(null)
     try {
       const saved = draftKey ? localStorage.getItem(draftKey) : null
@@ -132,15 +147,15 @@ export default function ProblemPage() {
       setDraftNotice('Browser storage is unavailable. Copy your code before leaving.')
     }
     setLoadedDraftKey(draftKey)
-  }, [draftKey, starter, problem, authLoading, user])
+  }, [draftKey, starter, problem, authLoading, user, loadedLanguageKey, languageKey])
   useEffect(() => {
-    if (!draftKey || loadedDraftKey !== draftKey) return
+    if (!draftKey || loadedDraftKey !== draftKey || loadedLanguageKey !== languageKey) return
     try {
       localStorage.setItem(draftKey, code)
     } catch {
       setDraftNotice('Draft could not be saved. Copy your code before leaving.')
     }
-  }, [code, draftKey, loadedDraftKey])
+  }, [code, draftKey, loadedDraftKey, loadedLanguageKey, languageKey])
 
   const loadHistory = useCallback(async () => {
     if (!user) {
@@ -281,6 +296,11 @@ export default function ProblemPage() {
               onChange={e => {
                 setLoadedDraftKey(null)
                 setLanguage(e.target.value as typeof language)
+                try {
+                  if (languageKey) localStorage.setItem(languageKey, e.target.value)
+                } catch {
+                  setDraftNotice('Language could not be saved. Copy your code before leaving.')
+                }
               }}
             >
               {problem.languages.map(l => (

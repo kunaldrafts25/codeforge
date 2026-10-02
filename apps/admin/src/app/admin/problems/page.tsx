@@ -482,6 +482,7 @@ export default function ProblemAuthoringPage() {
                 <label>
                   Reference language
                   <select
+                    aria-label="Reference language"
                     className={css}
                     value={r.language}
                     onChange={e =>

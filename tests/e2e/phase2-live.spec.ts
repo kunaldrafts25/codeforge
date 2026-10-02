@@ -14,15 +14,19 @@ test('real publication, candidate runs/submissions, private history and reload',
   ) {
     throw new Error('Fresh disposable live judge required')
   }
+  const fixture = randomBytes(8).toString('hex')
+  const slug = `browser-real-sum-${fixture}`
+  const email = `browser-real-${fixture}@example.test`
   const authorContext = await browser.newContext()
   const author = await authorContext.newPage()
+  author.setDefaultTimeout(15000)
   await author.goto('http://localhost:3001/login')
   await author.getByLabel('Email', { exact: true }).fill('admin@gfgmitadt.in')
   await author.getByLabel('Password', { exact: true }).fill(process.env.SEED_ADMIN_PASSWORD!)
   await author.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(author).toHaveURL(/quiz-review/)
   await author.goto('http://localhost:3001/admin/problems')
-  await author.getByLabel('Problem slug', { exact: true }).fill('browser-real-sum')
+  await author.getByLabel('Problem slug', { exact: true }).fill(slug)
   await author.getByLabel('Title', { exact: true }).fill('Browser real sum')
   await author.getByLabel('Statement Markdown').fill('Add two integers.')
   await author.getByLabel('Constraints', { exact: true }).fill('Integers between -100 and 100.')
@@ -49,13 +53,14 @@ test('real publication, candidate runs/submissions, private history and reload',
   await expect(author.getByRole('button', { name: 'Publish reviewed version' })).toBeDisabled()
   const reviewerContext = await browser.newContext()
   const reviewer = await reviewerContext.newPage()
+  reviewer.setDefaultTimeout(15000)
   await reviewer.goto('http://localhost:3001/login')
   await reviewer.getByLabel('Email', { exact: true }).fill('pilot-reviewer@codeforge.test')
   await reviewer.getByLabel('Password', { exact: true }).fill(process.env.SEED_REVIEWER_PASSWORD!)
   await reviewer.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(reviewer).toHaveURL(/quiz-review/)
   await reviewer.goto('http://localhost:3001/admin/problems')
-  await reviewer.getByRole('button', { name: 'browser-real-sum · version 1 · VALIDATED' }).click()
+  await reviewer.getByRole('button', { name: `${slug} · version 1 · VALIDATED` }).click()
   await reviewer
     .getByLabel('I independently reviewed the saved tests, solutions and rights basis.')
     .check()
@@ -64,20 +69,24 @@ test('real publication, candidate runs/submissions, private history and reload',
   const password = randomBytes(24).toString('hex')
   await prisma.user.create({
     data: {
-      email: 'browser-real@example.test',
-      username: 'browser_real',
+      email,
+      username: `browser_real_${fixture}`,
       emailVerifiedAt: new Date(),
       passwordHash: await hashPassword(password),
     },
   })
-  const candidateContext = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  const candidateContext = await browser.newContext({
+    baseURL: 'http://localhost:3000',
+    viewport: { width: 390, height: 844 },
+  })
   const candidate = await candidateContext.newPage()
+  candidate.setDefaultTimeout(15000)
   await candidate.goto('/login')
-  await candidate.getByLabel('Email', { exact: true }).fill('browser-real@example.test')
+  await candidate.getByLabel('Email', { exact: true }).fill(email)
   await candidate.getByLabel('Password', { exact: true }).fill(password)
   await candidate.getByRole('button', { name: 'Sign In', exact: true }).click()
   await expect(candidate).toHaveURL(/aptitude/)
-  await candidate.goto('/problems/browser-real-sum')
+  await candidate.goto(`/problems/${slug}`)
   await candidate.getByLabel('Language', { exact: true }).selectOption('python')
   await candidate.getByLabel('Code', { exact: true }).fill(source)
   await candidate.getByRole('button', { name: 'Run sample', exact: true }).click()
@@ -123,10 +132,20 @@ test('real publication, candidate runs/submissions, private history and reload',
     reviewer.getByText('Version withdrawn. Historical records are preserved.', { exact: true })
   ).toBeVisible()
   await candidate.reload()
-  const withdrawn = await candidateContext.request.get(
-    'http://localhost:5000/api/practice/problems/browser-real-sum'
-  )
-  expect(withdrawn.status()).toBe(404)
+  await expect
+    .poll(
+      async () => {
+        const withdrawn = await candidateContext.request.get(
+          `http://localhost:5000/api/practice/problems/${slug}`
+        )
+        // All three browsers share the loopback IP and its production rate limit.
+        // Retry throttling; every other response must satisfy withdrawal immediately.
+        if (withdrawn.status() !== 429) expect(withdrawn.status()).toBe(404)
+        return withdrawn.status()
+      },
+      { timeout: 65000, intervals: [5000, 10000] }
+    )
+    .toBe(404)
   await candidate.goto(`/practice/history?job=${new URL(acceptedUrl).searchParams.get('job')}`)
   await expect(
     candidate.getByRole('heading', { name: 'Server status: ACCEPTED', exact: true })
