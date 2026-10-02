@@ -38,7 +38,7 @@ echo 'PASS: existing Phase 1 fingerprints preserved.'
 pnpm --filter @codeforge/api exec tsx scripts/verify-phase2-data.ts
 if [[ ${1:-} == '--browser' ]]; then
   export NODE_ENV=development
-  PLAYWRIGHT_TEST_MATCH='**/phase1.spec.ts,**/phase2-disabled.spec.ts' pnpm exec playwright test
+  pnpm exec playwright test
 fi
 "${compose[@]}" exec -T postgres pg_dump -U phase2 -d "$database" -Fc --no-owner --no-privileges -f /tmp/phase2.dump
 "${compose[@]}" exec -T postgres createdb -U phase2 "$restore"
