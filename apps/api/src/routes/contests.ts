@@ -18,7 +18,7 @@ import {
   PracticePackage,
 } from '@codeforge/shared'
 import { badRequest, conflict, forbidden, HttpError, notFound } from '../errors.js'
-import { executionAvailability, hash, publicPackage } from '../practice/package.js'
+import { executionAvailability, hash, canonical, publicPackage } from '../practice/package.js'
 import { computeManifestHash } from '../contests/manifest.js'
 import {
   computeScoreboard,
@@ -235,48 +235,55 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
         throw notFound('CONTEST_NOT_FOUND', 'Contest not found')
       }
 
-      const dbUser = await prisma.user.findUnique({
-        where: { id: user.id },
-        select: { id: true, isBanned: true, emailVerifiedAt: true, rating: true },
-      })
-      if (!dbUser) {
-        throw forbidden('USER_NOT_FOUND', 'User record not found')
-      }
-
-      if (dbUser.isBanned) {
-        throw forbidden('ACCOUNT_BANNED', 'Banned accounts cannot register for contests')
-      }
-
-      if (!dbUser.emailVerifiedAt) {
-        throw forbidden('EMAIL_NOT_VERIFIED', 'Verify your email before registering for contests')
-      }
-
-      const now = new Date()
-      if (
-        (contest.registrationOpensAt && now < contest.registrationOpensAt) ||
-        (contest.registrationClosesAt && now >= contest.registrationClosesAt)
-      ) {
-        throw conflict('REGISTRATION_CLOSED', 'Contest registration is currently closed')
-      }
-
-      // Rating eligibility check
-      if (contest.isRated) {
-        if (contest.divisionMin !== null && dbUser.rating < contest.divisionMin) {
-          throw forbidden(
-            'INELIGIBLE_RATING',
-            `Rating ${dbUser.rating} is below minimum eligible rating ${contest.divisionMin}`
-          )
-        }
-        if (contest.divisionMax !== null && dbUser.rating > contest.divisionMax) {
-          throw forbidden(
-            'INELIGIBLE_RATING',
-            `Rating ${dbUser.rating} exceeds maximum eligible rating ${contest.divisionMax}`
-          )
-        }
-      }
-
-      // Capacity & idempotent registration check
+      // ── P3-R1 fix: Derive a stable 53-bit advisory lock key from contestId.
+      // All concurrent registrations/withdrawals/disqualifications serialize here.
+      // All eligibility state is re-read inside the transaction after the lock is held.
+      const lockKey = BigInt('0x' + contest.id.replace(/-/g, '').slice(0, 14)) & 0x1fffffffffffffn
       return prisma.$transaction(async tx => {
+        await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${lockKey})`)
+
+        // Re-read contest to pick up races with cancellation/window changes
+        const liveContest = await tx.contest.findUniqueOrThrow({ where: { id: contest.id } })
+        const nowTx = new Date()
+
+        if (['DRAFT', 'CANCELLED'].includes(liveContest.status)) {
+          throw conflict('CONTEST_NOT_ACTIVE', 'Contest is not open for registration')
+        }
+        if (
+          (liveContest.registrationOpensAt && nowTx < liveContest.registrationOpensAt) ||
+          (liveContest.registrationClosesAt && nowTx >= liveContest.registrationClosesAt)
+        ) {
+          throw conflict('REGISTRATION_CLOSED', 'Contest registration is currently closed')
+        }
+
+        // Re-read user to pick up races with bans and verifications
+        const liveUser = await tx.user.findUniqueOrThrow({
+          where: { id: user.id },
+          select: { isBanned: true, emailVerifiedAt: true, rating: true },
+        })
+        if (liveUser.isBanned) {
+          throw forbidden('ACCOUNT_BANNED', 'Banned accounts cannot register for contests')
+        }
+        if (!liveUser.emailVerifiedAt) {
+          throw forbidden('EMAIL_NOT_VERIFIED', 'Verify your email before registering for contests')
+        }
+
+        // Rating division check with live value
+        if (liveContest.isRated) {
+          if (liveContest.divisionMin !== null && liveUser.rating < liveContest.divisionMin) {
+            throw forbidden(
+              'INELIGIBLE_RATING',
+              `Rating ${liveUser.rating} is below minimum eligible rating ${liveContest.divisionMin}`
+            )
+          }
+          if (liveContest.divisionMax !== null && liveUser.rating > liveContest.divisionMax) {
+            throw forbidden(
+              'INELIGIBLE_RATING',
+              `Rating ${liveUser.rating} exceeds maximum eligible rating ${liveContest.divisionMax}`
+            )
+          }
+        }
+
         const existing = await tx.contestParticipant.findUnique({
           where: { contestId_userId: { contestId: contest.id, userId: user.id } },
         })
@@ -292,17 +299,21 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
           if (existing.status === 'DISQUALIFIED') {
             throw forbidden('DISQUALIFIED', 'You are disqualified from this contest')
           }
-          // Re-registration after withdrawal: check capacity
+          // Re-registration after withdrawal: check capacity inside the lock
           const count = await tx.contestParticipant.count({
             where: { contestId: contest.id, status: 'REGISTERED' },
           })
-          if (count >= contest.capacity) {
+          if (count >= liveContest.capacity) {
             throw conflict('CAPACITY_EXCEEDED', 'Contest has reached maximum participant capacity')
           }
 
           const updated = await tx.contestParticipant.update({
             where: { contestId_userId: { contestId: contest.id, userId: user.id } },
-            data: { status: 'REGISTERED', ratingAtRegistration: dbUser.rating, registeredAt: now },
+            data: {
+              status: 'REGISTERED',
+              ratingAtRegistration: liveUser.rating,
+              registeredAt: nowTx,
+            },
           })
           return {
             ok: true,
@@ -314,7 +325,7 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
         const count = await tx.contestParticipant.count({
           where: { contestId: contest.id, status: 'REGISTERED' },
         })
-        if (count >= contest.capacity) {
+        if (count >= liveContest.capacity) {
           throw conflict('CAPACITY_EXCEEDED', 'Contest has reached maximum participant capacity')
         }
 
@@ -323,8 +334,8 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
             contestId: contest.id,
             userId: user.id,
             status: 'REGISTERED',
-            ratingAtRegistration: dbUser.rating,
-            registeredAt: now,
+            ratingAtRegistration: liveUser.rating,
+            registeredAt: nowTx,
           },
         })
 
@@ -333,7 +344,7 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
             actorId: user.id,
             action: 'contest.register',
             target: contest.id,
-            payload: { contestId: contest.id, rating: dbUser.rating },
+            payload: { contestId: contest.id, rating: liveUser.rating },
           },
         })
 
@@ -659,6 +670,16 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
       const skip = (page - 1) * limit
       const pagedEntries = entries.slice(skip, skip + limit)
 
+      // ── P3-R7 fix: compute a stable revision token from content so clients can detect stale pages. ──
+      // This is a content hash that changes when submissions change, not a monotonic counter.
+      // Clients must use the same token for all pages of a single multi-page fetch.
+      const liveRevisionToken = hash(
+        canonical({
+          submissionCount: submissions.length,
+          lastId: submissions[submissions.length - 1]?.id ?? '',
+        })
+      )
+
       return {
         contest: {
           id: contest.id,
@@ -674,7 +695,7 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
         isFrozen,
         frozenAt: isFrozen ? contest.freezeAt!.toISOString() : null,
         asOfTime: now.toISOString(),
-        revision: 1,
+        revision: liveRevisionToken,
         entries: pagedEntries,
         total: entries.length,
         page,
@@ -773,6 +794,17 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
       }
 
       const versionMap = new Map(versions.map(v => [v.id, v]))
+
+      // ── P3-R3 fix: all assigned versions must be PUBLISHED with genuine validation evidence. ──
+      for (const [vId, v] of versionMap) {
+        if (v.status !== 'PUBLISHED' || !v.publishedAt) {
+          throw conflict(
+            'VERSION_NOT_PUBLISHED',
+            `Version ${vId} (problem ${v.problemId}) must be PUBLISHED before it can be assigned to a contest`
+          )
+        }
+      }
+
       const problemsWithTitles = body.problems.map((p, idx) => {
         const v = versionMap.get(p.versionId)!
         const pkg = PracticePackage.parse(v.package)
@@ -787,77 +819,85 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
         }
       })
 
-      const manifestHash = computeManifestHash({
-        contestId: '00000000-0000-0000-0000-000000000000',
-        revision: 1,
-        title: body.title,
-        slug: body.slug,
-        description: body.description,
-        startTime: body.startTime,
-        endTime: body.endTime,
-        registrationOpensAt: body.registrationOpensAt,
-        registrationClosesAt: body.registrationClosesAt,
-        freezeAt: body.freezeAt ?? null,
-        capacity: body.capacity,
-        isRated: body.isRated,
-        divisionMin: body.divisionMin,
-        divisionMax: body.divisionMax,
-        scoringPolicy: 'icpc-binary-v1',
-        ratingPolicy: 'codeforge-pairwise-elo-v1',
-        problems: problemsWithTitles,
-        runtimePolicyHash,
-      })
+      // ── P3-R3 fix: create the contest FIRST to obtain the real UUID, then compute the manifest hash. ──
+      // The hash must include the actual contestId, not a zero-placeholder.
+      const contest = await prisma.$transaction(async tx => {
+        const created = await tx.contest.create({
+          data: {
+            title: body.title,
+            slug: body.slug,
+            description: body.description,
+            format: 'ICPC',
+            startTime: new Date(body.startTime),
+            endTime: new Date(body.endTime),
+            registrationOpensAt: new Date(body.registrationOpensAt),
+            registrationClosesAt: new Date(body.registrationClosesAt),
+            freezeAt: body.freezeAt ? new Date(body.freezeAt) : null,
+            capacity: body.capacity,
+            isRated: body.isRated,
+            divisionMin: body.divisionMin ?? null,
+            divisionMax: body.divisionMax ?? null,
+            status: 'DRAFT',
+            isPublic: true,
+          },
+        })
 
-      const contest = await prisma.contest.create({
-        data: {
+        // Compute manifest hash with the real contestId
+        const realManifestHash = computeManifestHash({
+          contestId: created.id,
+          revision: 1,
           title: body.title,
           slug: body.slug,
           description: body.description,
-          format: 'ICPC',
-          startTime: new Date(body.startTime),
-          endTime: new Date(body.endTime),
-          registrationOpensAt: new Date(body.registrationOpensAt),
-          registrationClosesAt: new Date(body.registrationClosesAt),
-          freezeAt: body.freezeAt ? new Date(body.freezeAt) : null,
+          startTime: body.startTime,
+          endTime: body.endTime,
+          registrationOpensAt: body.registrationOpensAt,
+          registrationClosesAt: body.registrationClosesAt,
+          freezeAt: body.freezeAt ?? null,
           capacity: body.capacity,
           isRated: body.isRated,
-          divisionMin: body.divisionMin ?? null,
-          divisionMax: body.divisionMax ?? null,
-          status: 'DRAFT',
-          isPublic: true,
-          manifests: {
-            create: {
-              revision: 1,
-              title: body.title,
-              slug: body.slug,
-              description: body.description,
-              startTime: new Date(body.startTime),
-              endTime: new Date(body.endTime),
-              registrationOpensAt: new Date(body.registrationOpensAt),
-              registrationClosesAt: new Date(body.registrationClosesAt),
-              freezeAt: body.freezeAt ? new Date(body.freezeAt) : null,
-              capacity: body.capacity,
-              isRated: body.isRated,
-              divisionMin: body.divisionMin ?? null,
-              divisionMax: body.divisionMax ?? null,
-              scoringPolicy: 'icpc-binary-v1',
-              ratingPolicy: 'codeforge-pairwise-elo-v1',
-              problems: problemsWithTitles as unknown as Prisma.InputJsonValue,
-              manifestHash,
-              runtimePolicyHash,
-              authorId: request.user!.id,
-              status: 'DRAFT',
-            },
+          divisionMin: body.divisionMin,
+          divisionMax: body.divisionMax,
+          scoringPolicy: 'icpc-binary-v1',
+          ratingPolicy: 'codeforge-pairwise-elo-v1',
+          problems: problemsWithTitles,
+          runtimePolicyHash,
+        })
+
+        const manifest = await tx.contestManifest.create({
+          data: {
+            contestId: created.id,
+            revision: 1,
+            title: body.title,
+            slug: body.slug,
+            description: body.description,
+            startTime: new Date(body.startTime),
+            endTime: new Date(body.endTime),
+            registrationOpensAt: new Date(body.registrationOpensAt),
+            registrationClosesAt: new Date(body.registrationClosesAt),
+            freezeAt: body.freezeAt ? new Date(body.freezeAt) : null,
+            capacity: body.capacity,
+            isRated: body.isRated,
+            divisionMin: body.divisionMin ?? null,
+            divisionMax: body.divisionMax ?? null,
+            scoringPolicy: 'icpc-binary-v1',
+            ratingPolicy: 'codeforge-pairwise-elo-v1',
+            problems: problemsWithTitles as unknown as Prisma.InputJsonValue,
+            manifestHash: realManifestHash,
+            runtimePolicyHash,
+            authorId: request.user!.id,
+            status: 'DRAFT',
           },
-        },
-        include: { manifests: true },
+        })
+
+        return { ...created, manifests: [manifest], realManifestHash }
       })
 
       return {
         id: contest.id,
         slug: contest.slug,
         manifestId: contest.manifests[0]?.id,
-        manifestHash,
+        manifestHash: contest.realManifestHash,
         status: contest.status,
       }
     }
@@ -908,7 +948,71 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
         )
       }
 
-      // Check runtime availability
+      // ── P3-R3 fix: at seal time, re-verify all problem versions are still PUBLISHED
+      // and recompute the expected hash from persisted manifest fields to detect tampering.
+      const manifestProblems = manifest.problems as Array<{
+        label: string
+        orderIndex: number
+        problemId: string
+        versionId: string
+        packageHash: string
+        points: number
+        title: string
+      }>
+      const manifestVersionIds = manifestProblems.map(p => p.versionId)
+      const manifestVersions = await prisma.practiceVersion.findMany({
+        where: { id: { in: manifestVersionIds } },
+        select: { id: true, status: true, publishedAt: true, packageHash: true },
+      })
+      for (const v of manifestVersions) {
+        if (v.status !== 'PUBLISHED' || !v.publishedAt) {
+          throw conflict(
+            'VERSION_NOT_PUBLISHED',
+            `Version ${v.id} is no longer PUBLISHED; re-draft the contest with a valid version`
+          )
+        }
+        // Check for package hash drift (tampered package)
+        const mProb = manifestProblems.find(p => p.versionId === v.id)
+        if (mProb && mProb.packageHash !== v.packageHash) {
+          throw conflict(
+            'PACKAGE_HASH_MISMATCH',
+            `Package hash for version ${v.id} has changed since the draft was created`
+          )
+        }
+      }
+      if (manifestVersions.length !== manifestVersionIds.length) {
+        throw conflict('VERSION_NOT_FOUND', 'One or more problem versions no longer exist')
+      }
+
+      // Recompute expected hash from stored manifest fields and verify it matches
+      const expectedHash = computeManifestHash({
+        contestId: contest.id,
+        revision: manifest.revision,
+        title: manifest.title,
+        slug: manifest.slug,
+        description: manifest.description,
+        startTime: manifest.startTime.toISOString(),
+        endTime: manifest.endTime.toISOString(),
+        registrationOpensAt: manifest.registrationOpensAt.toISOString(),
+        registrationClosesAt: manifest.registrationClosesAt.toISOString(),
+        freezeAt: manifest.freezeAt?.toISOString() ?? null,
+        capacity: manifest.capacity,
+        isRated: manifest.isRated,
+        divisionMin: manifest.divisionMin,
+        divisionMax: manifest.divisionMax,
+        scoringPolicy: manifest.scoringPolicy,
+        ratingPolicy: manifest.ratingPolicy,
+        problems: manifestProblems,
+        runtimePolicyHash: manifest.runtimePolicyHash,
+      })
+      if (expectedHash !== manifest.manifestHash) {
+        throw conflict(
+          'MANIFEST_INTEGRITY_FAILURE',
+          'Stored manifest hash does not match recomputed hash; the manifest may have been tampered with'
+        )
+      }
+
+      // Check runtime availability and pinned policy match
       const availability = await executionAvailability()
       if (!availability.enabled) {
         throw conflict('RUNTIME_UNAVAILABLE', 'Cannot seal contest without verified judge worker')
@@ -995,7 +1099,20 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
         disqualifyUserId,
       } = request.body
 
-      // If disqualifying user:
+      // ── P3-R5/R4 fix: idempotent correction — check for an existing operation with the same key. ──
+      const existing = await prisma.contestSettlementJob.findUnique({
+        where: { operationId: idempotencyKey },
+      })
+      if (existing) {
+        return {
+          ok: true,
+          settlementJobId: existing.id,
+          state: existing.state,
+          message: 'Correction already queued (idempotent)',
+        }
+      }
+
+      // If disqualifying user: do this synchronously (idempotent, does not affect pending verdicts)
       if (disqualifyUserId) {
         await prisma.contestParticipant.update({
           where: { contestId_userId: { contestId, userId: disqualifyUserId } },
@@ -1007,19 +1124,93 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
         })
       }
 
-      // If rejudging specific submission:
+      // If rejudging specific submission: queue job with contestId validation
+      let rejudgeJobId: string | null = null
       if (submissionId) {
         const policy = await getExecutionPolicy()
-        await rejudgeContestSubmission(prisma, {
+        const { job } = await rejudgeContestSubmission(prisma, {
           submissionId,
+          contestId, // ── P3-R5 fix: validates submission belongs to this contest. ──
           actorId: request.user!.id,
           reason,
-          idempotencyKey,
+          idempotencyKey: `${idempotencyKey}:rejudge`,
           policy,
         })
+        rejudgeJobId = job.id
       }
 
-      // Trigger chronological replay
+      // ── P3-R4 fix: queue a durable ContestSettlementJob for staged replay. ──
+      // Replay will only execute after the replacement verdict is terminal.
+      // This prevents publishing incomplete results while the new submission is QUEUED.
+      const settlementJob = await prisma.contestSettlementJob.create({
+        data: {
+          contestId,
+          operationId: idempotencyKey,
+          type: submissionId ? 'REJUDGE_REPLAY' : 'DISQUALIFY_REPLAY',
+          state: 'QUEUED',
+          generation: 1,
+        },
+      })
+
+      await prisma.auditLog.create({
+        data: {
+          actorId: request.user!.id,
+          action: 'contest.correction.queued',
+          target: contestId,
+          payload: {
+            contestId,
+            submissionId,
+            disqualifyUserId,
+            rejudgeJobId,
+            settlementJobId: settlementJob.id,
+            operationId: idempotencyKey,
+            reason,
+          },
+        },
+      })
+
+      return {
+        ok: true,
+        settlementJobId: settlementJob.id,
+        rejudgeJobId,
+        state: 'QUEUED',
+        message: 'Correction queued. Replay will execute once replacement verdict is available.',
+      }
+    }
+  )
+
+  // Manual replay trigger (after verifying replacement verdict is terminal)
+  app.post(
+    '/staff/:id/replay',
+    {
+      schema: {
+        params: idParam,
+        body: z.object({
+          idempotencyKey: z.string().min(8).max(128),
+          reason: z.string().min(10).max(1000),
+        }),
+      },
+      preHandler: [app.requireRole(...operatorRoles)],
+    },
+    async request => {
+      const { id: contestId } = request.params
+      const { idempotencyKey, reason } = request.body
+
+      // Check there are no pending rejudge submissions for this contest before replaying
+      const pendingRejudge = await prisma.practiceJob.count({
+        where: {
+          contestId,
+          scope: 'CONTEST',
+          state: { in: ['QUEUED', 'COMPILING', 'RUNNING'] },
+        },
+      })
+      if (pendingRejudge > 0) {
+        throw conflict(
+          'REJUDGE_PENDING',
+          `Cannot replay while ${pendingRejudge} rejudge submissions are still being judged. Wait for verdicts first.`
+        )
+      }
+
       const replayResult = await replayChronologicalContests(
         contestId,
         request.user!.id,
@@ -1027,10 +1218,13 @@ export const contestRoutes: FastifyPluginAsyncZod = async app => {
         idempotencyKey
       )
 
-      return {
-        ok: true,
-        ...replayResult,
-      }
+      // Mark any settlement job as completed
+      await prisma.contestSettlementJob.updateMany({
+        where: { contestId, state: 'QUEUED' },
+        data: { state: 'TERMINAL', finishedAt: new Date() },
+      })
+
+      return { ok: true, ...replayResult }
     }
   )
 

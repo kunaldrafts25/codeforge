@@ -42,7 +42,9 @@ export async function enqueueContestSubmission(
   )
 
   return practiceTransaction(db, async tx => {
-    // Check existing submission by idempotency key
+    // ── P3-R6 fix: resolve existing intent FIRST, before any window/eligibility checks. ──
+    // A matching retry after contest end returns original IDs without re-checking the window.
+    // A conflicting key (different source/lang/label) returns a conflict error.
     const existing = await tx.contestSubmission.findUnique({
       where: {
         contestId_userId_idempotencyKey: {
@@ -145,6 +147,7 @@ export async function rejudgeContestSubmission(
   db: PrismaClient,
   input: {
     submissionId: string
+    contestId?: string // For cross-contest ownership validation
     actorId: string
     reason: string
     idempotencyKey: string
@@ -161,15 +164,41 @@ export async function rejudgeContestSubmission(
       include: { job: true },
     })
 
+    // ── P3-R5 fix: validate submission belongs to the requested contest. ──
+    if (input.contestId && oldSub.contestId !== input.contestId) {
+      throw new Error('Submission does not belong to the requested contest')
+    }
+
     const oldJob = oldSub.job
     if (!['TERMINAL', 'DEAD_LETTER'].includes(oldJob.state)) {
       throw new Error('Only completed submissions can be rejudged')
+    }
+
+    // ── P3-R5 fix: idempotent rejudge — if same idempotencyKey was already issued, return it. ──
+    const existingRejudge = await tx.contestSubmission.findFirst({
+      where: {
+        contestId: oldSub.contestId,
+        userId: oldSub.userId,
+        idempotencyKey: input.idempotencyKey,
+      },
+      include: { job: true },
+    })
+    if (existingRejudge) {
+      return { submission: existingRejudge, job: existingRejudge.job }
     }
 
     const nextGen = oldSub.generation + 1
     const requestHash = digest(
       JSON.stringify(['contest-rejudge', oldSub.id, nextGen, input.actorId, input.reason])
     )
+
+    // ── P3-R5 fix: always bind the version's packageHash so the worker integrity check passes. ──
+    const version = await tx.practiceVersion.findUniqueOrThrow({
+      where: { id: oldJob.versionId },
+      select: { packageHash: true },
+    })
+    const basePolicy = input.policy ?? (oldJob.policy as Record<string, unknown>) ?? {}
+    const boundPolicy = { ...basePolicy, packageHash: version.packageHash }
 
     // Mark previous submission as non-authoritative
     await tx.contestSubmission.update({
@@ -188,7 +217,7 @@ export async function rejudgeContestSubmission(
         sourceHash: oldJob.sourceHash,
         requestHash,
         idempotencyKey: input.idempotencyKey,
-        policy: (input.policy ?? oldJob.policy) as Prisma.InputJsonValue,
+        policy: boundPolicy as unknown as Prisma.InputJsonValue,
         state: 'QUEUED',
         generation: nextGen,
         originJobId: oldJob.originJobId ?? oldJob.id,

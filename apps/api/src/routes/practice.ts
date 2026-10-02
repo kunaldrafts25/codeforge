@@ -158,7 +158,12 @@ export const practiceRoutes: FastifyPluginAsyncZod = async app => {
     { schema: { querystring: pageQuery }, preHandler: [app.requireAuth] },
     async request => {
       const { page, limit } = request.query
-      const where = { ownerId: request.user!.id, kind: { in: ['RUN', 'SUBMIT'] } }
+      // ── P3-R2 fix: scope filter – practice history must not include contest jobs. ──
+      const where = {
+        ownerId: request.user!.id,
+        kind: { in: ['RUN', 'SUBMIT'] },
+        scope: 'PRACTICE',
+      }
       const [rows, total] = await Promise.all([
         prisma.practiceJob.findMany({
           where,
@@ -192,6 +197,8 @@ export const practiceRoutes: FastifyPluginAsyncZod = async app => {
           id: request.params.id,
           ownerId: request.user!.id,
           kind: { in: ['RUN', 'SUBMIT'] },
+          // ── P3-R2 fix: scope filter – practice job detail must not expose contest jobs. ──
+          scope: 'PRACTICE',
         },
         select: {
           id: true,
@@ -254,6 +261,8 @@ export const practiceRoutes: FastifyPluginAsyncZod = async app => {
             id: request.params.id,
             ownerId: request.user!.id,
             kind: { in: ['RUN', 'SUBMIT'] },
+            // ── P3-R2 fix: scope filter – contest jobs CANNOT be cancelled via practice endpoint. ──
+            scope: 'PRACTICE',
           },
         })
         if (!j) throw notFound('JOB_NOT_FOUND', 'Job not found')

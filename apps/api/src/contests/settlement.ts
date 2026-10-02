@@ -50,6 +50,33 @@ export async function finalizeContest(
       }
     }
 
+    if (_idempotencyKey) {
+      const existingJob = await tx.contestSettlementJob.findUnique({
+        where: { operationId: _idempotencyKey },
+      })
+      if (existingJob) {
+        if (existingJob.contestId !== contestId) {
+          throw conflict(
+            'IDEMPOTENCY_CONFLICT',
+            'Operation ID was already used for a different contest'
+          )
+        }
+        if (existingJob.state === 'COMPLETED' || existingJob.state === 'TERMINAL') {
+          const snapshot = await tx.contestScoreboardSnapshot.findFirst({
+            where: { contestId, isFrozen: false },
+            orderBy: { revision: 'desc' },
+          })
+          return {
+            contestId: contest.id,
+            status: 'FINALIZED',
+            isRated: contest.isRated,
+            snapshot,
+            settlementJobId: existingJob.id,
+          }
+        }
+      }
+    }
+
     if (contest.status === 'CANCELLED') {
       throw conflict('CONTEST_CANCELLED', 'Cancelled contest cannot be finalized')
     }
@@ -77,11 +104,16 @@ export async function finalizeContest(
       )
     }
 
-    // Check for unresolved infrastructure failures (DEAD_LETTER / JUDGE_FAILURE)
+    // ── P3-R5 fix: only count DEAD_LETTER for the latest generation per submission lineage. ──
+    // An old failed generation followed by a successful rejudge must not block settlement.
     const deadLetters = await tx.practiceJob.count({
       where: {
         contestId: contest.id,
         state: 'DEAD_LETTER',
+        // Only jobs whose contestSubmission is still authoritative (i.e., no successful replacement)
+        contestSubmission: {
+          is: { isAuthoritative: true },
+        },
       },
     })
     if (deadLetters > 0) {
@@ -106,7 +138,6 @@ export async function finalizeContest(
     }
 
     // If rated: enforce serialization order
-    // Check if an earlier scheduled/running/ended rated contest is not finalized
     if (contest.isRated) {
       const earlierUnsettled = await tx.contest.findFirst({
         where: {
@@ -126,6 +157,24 @@ export async function finalizeContest(
           `Cannot finalize rated contest ${contest.slug} because earlier rated contest ${earlierUnsettled.slug} is unsettled`
         )
       }
+    }
+
+    let settlementJob: { id: string } | null = null
+    if (_idempotencyKey) {
+      settlementJob = await tx.contestSettlementJob.upsert({
+        where: { operationId: _idempotencyKey },
+        create: {
+          contestId: contest.id,
+          operationId: _idempotencyKey,
+          type: 'FINALIZE',
+          state: 'RUNNING',
+          startedAt: now,
+        },
+        update: {
+          state: 'RUNNING',
+          startedAt: now,
+        },
+      })
     }
 
     // Load manifest problems
@@ -349,19 +398,35 @@ export async function finalizeContest(
       },
     })
 
+    if (settlementJob) {
+      await tx.contestSettlementJob.update({
+        where: { id: settlementJob.id },
+        data: {
+          state: 'COMPLETED',
+          finishedAt: new Date(),
+        },
+      })
+    }
+
     return {
       contestId: contest.id,
       status: 'FINALIZED',
       isRated: contest.isRated,
       participantsCount: finalEntries.length,
       ratingsCount: ratingResults.length,
+      settlementJobId: settlementJob?.id,
     }
   })
 }
 
 /**
  * Replays all rated contests chronologically starting from `fromContestId`.
- * Updates all dependent users (including participants in subsequent contests).
+ * Updates all dependent users (including disqualified users who lose all rated history).
+ *
+ * P3-R4 fixes:
+ * - Disqualified users are added to allAffectedUsers so their projections are corrected
+ * - Users who lose ALL authoritative ledger entries are reset to 1500/0/null
+ * - Revised scoreboard snapshots are published (revision incremented)
  */
 export async function replayChronologicalContests(
   fromContestId: string,
@@ -407,7 +472,6 @@ export async function replayChronologicalContests(
     })
 
     // Simulated ledger state for tracking users' rating during replay
-    // userId -> { currentRating, maxRating, contestsCount }
     const simRatings = new Map<string, { rating: number; maxRating: number; count: number }>()
 
     const allAffectedUsers = new Set<string>()
@@ -444,6 +508,15 @@ export async function replayChronologicalContests(
         participants: participantsInput,
       })
 
+      // ── P3-R4 fix: add ALL participants (including disqualified) to affected users set. ──
+      for (const entry of finalEntries) {
+        allAffectedUsers.add(entry.userId)
+      }
+      // Also add participants who may have been disqualified after finalization
+      for (const p of c.participants) {
+        allAffectedUsers.add(p.userId)
+      }
+
       // Collect eligible inputs using simulated prefix
       const eligibleInputs: CompetitorRatingInput[] = []
 
@@ -464,8 +537,6 @@ export async function replayChronologicalContests(
               'COMPILATION_ERROR',
             ].includes(s.verdict)
         )
-
-        allAffectedUsers.add(entry.userId)
 
         let userSim = simRatings.get(entry.userId)
         if (!userSim) {
@@ -518,7 +589,7 @@ export async function replayChronologicalContests(
               newRating: out.newRating,
               delta: out.delta,
               rank,
-              isAuthoritative: false, // staged
+              isAuthoritative: false, // staged until atomic swap
               manifestHash,
               scoringHash,
             },
@@ -530,6 +601,39 @@ export async function replayChronologicalContests(
           userSim.maxRating = Math.max(userSim.maxRating, out.newRating)
           userSim.count += 1
         }
+      }
+
+      // ── P3-R4 fix: publish revised scoreboard snapshot for this contest in the chain. ──
+      // Increment the revision so the API returns the corrected result, not the stale one.
+      const scoringHash = hash(canonical(finalEntries))
+      const latestRevision = await tx.contestScoreboardSnapshot.findFirst({
+        where: { contestId: c.id, isFrozen: false },
+        orderBy: { revision: 'desc' },
+        select: { revision: true },
+      })
+      const nextRevision = (latestRevision?.revision ?? 0) + 1
+      await tx.contestScoreboardSnapshot.create({
+        data: {
+          contestId: c.id,
+          revision: nextRevision,
+          isFrozen: false,
+          asOfTime: new Date(),
+          payload: finalEntries as unknown as Prisma.InputJsonValue,
+          checksum: scoringHash,
+        },
+      })
+
+      // Update participant scores/rank in ContestParticipant table
+      for (const entry of finalEntries) {
+        await tx.contestParticipant.update({
+          where: { contestId_userId: { contestId: c.id, userId: entry.userId } },
+          data: {
+            score: entry.score,
+            penalty: entry.penalty,
+            rank: entry.rank,
+            problemStates: entry.problemResults as unknown as Prisma.InputJsonValue,
+          },
+        })
       }
     }
 
@@ -554,7 +658,8 @@ export async function replayChronologicalContests(
       data: { isAuthoritative: true },
     })
 
-    // Update User tables for all affected users from their authoritative ledger history
+    // ── P3-R4 fix: Update User projections for ALL affected users (including disqualified). ──
+    // Users with zero authoritative ledger entries are reset to policy baseline (1500/0/null).
     for (const userId of allAffectedUsers) {
       const latest = await tx.contestRatingLedger.findFirst({
         where: { userId, isAuthoritative: true },
@@ -562,16 +667,14 @@ export async function replayChronologicalContests(
         orderBy: [{ contest: { endTime: 'desc' } }, { contest: { id: 'desc' } }],
       })
 
-      const maxAgg = await tx.contestRatingLedger.aggregate({
-        where: { userId, isAuthoritative: true },
-        _max: { newRating: true },
-      })
-
-      const totalContests = await tx.contestRatingLedger.count({
-        where: { userId, isAuthoritative: true },
-      })
-
       if (latest) {
+        const maxAgg = await tx.contestRatingLedger.aggregate({
+          where: { userId, isAuthoritative: true },
+          _max: { newRating: true },
+        })
+        const totalContests = await tx.contestRatingLedger.count({
+          where: { userId, isAuthoritative: true },
+        })
         const finalMax = Math.max(1500, maxAgg._max.newRating ?? 1500)
         await tx.user.update({
           where: { id: userId },
@@ -580,6 +683,17 @@ export async function replayChronologicalContests(
             maxRating: finalMax,
             contestsCount: totalContests,
             lastContestAt: latest.contest.endTime,
+          },
+        })
+      } else {
+        // ── P3-R4 fix: user lost ALL authoritative rated history → reset to policy baseline. ──
+        await tx.user.update({
+          where: { id: userId },
+          data: {
+            rating: 1500,
+            maxRating: 1500,
+            contestsCount: 0,
+            lastContestAt: null,
           },
         })
       }

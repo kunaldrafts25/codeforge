@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test'
-import { prisma } from '../../packages/db/src/index'
+import { createHash } from 'node:crypto'
+import { prisma, type Prisma } from '../../packages/db/src/index'
 import { hashPassword } from '../../apps/api/src/auth/password'
+import { computeManifestHash } from '../../apps/api/src/contests/manifest'
 
 test('Phase 3 contests, standings, and leaderboard browser journeys', async ({ browser }) => {
   test.setTimeout(180000)
@@ -12,7 +14,6 @@ test('Phase 3 contests, standings, and leaderboard browser journeys', async ({ b
     throw new Error('Disposable browser environment required')
   }
 
-  // Seed test contest if not existing
   const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'StaffPassword123!'
   const candidatePassword = 'CandidatePassword123!'
 
@@ -30,7 +31,79 @@ test('Phase 3 contests, standings, and leaderboard browser journeys', async ({ b
     },
   })
 
-  await prisma.contest.upsert({
+  const adminUser = await prisma.user.findFirstOrThrow({ where: { role: 'ADMIN' } })
+  const reviewerUser = await prisma.user.findFirstOrThrow({ where: { role: 'REVIEWER' } })
+
+  const problem = await prisma.problem.upsert({
+    where: { slug: 'browser-sum' },
+    update: {},
+    create: {
+      slug: 'browser-sum',
+      title: 'Browser Two Sum',
+      statementMd: 'Compute sum of two numbers.',
+      inputFormat: 'Two numbers',
+      outputFormat: 'One number',
+      constraints: '1 <= N <= 100',
+      difficultyBand: 'easy',
+      authorId: adminUser.id,
+      isPublic: true,
+      status: 'PUBLISHED',
+    },
+  })
+
+  const pkg = {
+    title: 'Browser Two Sum',
+    statementMd: 'Compute sum of two numbers.',
+    constraints: '1 <= N <= 100',
+    inputFormat: 'Two numbers',
+    outputFormat: 'One number',
+    difficultyBand: 'easy',
+    tags: ['math'],
+    mode: 'STDIO',
+    signature: null,
+    languages: ['cpp', 'python'],
+    limits: { timeMs: 1000, memoryKb: 131072, outputKb: 64 },
+    checker: { kind: 'token', absolute: 0, relative: 0 },
+    cases: [{ input: '2 3\n', output: '5\n', sample: true, explanation: '2+3=5' }],
+    references: [
+      {
+        language: 'python',
+        code: 'import sys; print(sum(map(int, sys.stdin.read().split())))',
+        complexity: 'O(1)',
+      },
+    ],
+    starters: {
+      cpp: '#include <iostream>\nint main() { std::cout << 5 << std::endl; }',
+      python: 'print(5)',
+    },
+    hints: [],
+    editorial: '',
+    rightsBasis: 'Original work',
+  }
+  const pkgHash = createHash('sha256').update(JSON.stringify(pkg)).digest('hex')
+
+  const version = await prisma.practiceVersion.upsert({
+    where: { problemId_number: { problemId: problem.id, number: 1 } },
+    update: {
+      validation: { status: 'VALIDATED', passed: true },
+      status: 'PUBLISHED',
+      publishedAt: new Date(),
+    },
+    create: {
+      problemId: problem.id,
+      number: 1,
+      authorId: adminUser.id,
+      reviewerId: reviewerUser.id,
+      status: 'PUBLISHED',
+      validation: { status: 'VALIDATED', passed: true },
+      approvedAt: new Date(),
+      publishedAt: new Date(),
+      packageHash: pkgHash,
+      package: pkg as unknown as Prisma.InputJsonValue,
+    },
+  })
+
+  const contest = await prisma.contest.upsert({
     where: { slug: 'browser-test-contest' },
     update: {},
     create: {
@@ -48,20 +121,95 @@ test('Phase 3 contests, standings, and leaderboard browser journeys', async ({ b
     },
   })
 
-  // 1. Candidate browser context
+  const manifestProblems = [
+    {
+      orderIndex: 0,
+      label: 'A',
+      problemId: problem.id,
+      versionId: version.id,
+      packageHash: version.packageHash,
+      points: 1,
+      title: 'Browser Two Sum',
+    },
+  ]
+  const runtimePolicyHash = createHash('sha256').update('policy:gvisor-strict-v1').digest('hex')
+  const mHash = computeManifestHash({
+    contestId: contest.id,
+    revision: 1,
+    title: contest.title,
+    slug: contest.slug,
+    startTime: contest.startTime.toISOString(),
+    endTime: contest.endTime.toISOString(),
+    registrationOpensAt: contest.startTime.toISOString(),
+    registrationClosesAt: contest.endTime.toISOString(),
+    capacity: contest.capacity,
+    isRated: contest.isRated,
+    scoringPolicy: 'icpc-binary-v1',
+    ratingPolicy: 'codeforge-pairwise-elo-v1',
+    problems: manifestProblems,
+    runtimePolicyHash,
+  })
+
+  const manifest = await prisma.contestManifest.upsert({
+    where: { contestId_revision: { contestId: contest.id, revision: 1 } },
+    update: {},
+    create: {
+      contestId: contest.id,
+      revision: 1,
+      title: contest.title,
+      slug: contest.slug,
+      startTime: contest.startTime,
+      endTime: contest.endTime,
+      registrationOpensAt: contest.startTime,
+      registrationClosesAt: contest.endTime,
+      capacity: contest.capacity,
+      isRated: contest.isRated,
+      scoringPolicy: 'icpc-binary-v1',
+      ratingPolicy: 'codeforge-pairwise-elo-v1',
+      manifestHash: mHash,
+      runtimePolicyHash,
+      authorId: adminUser.id,
+      reviewerId: reviewerUser.id,
+      approvedAt: new Date(),
+      problems: manifestProblems as unknown as Prisma.InputJsonValue,
+      status: 'SEALED',
+    },
+  })
+
+  await prisma.contest.update({
+    where: { id: contest.id },
+    data: { activeManifestId: manifest.id },
+  })
+
+  // 1. Candidate browser journey: Login -> Discover -> Register -> View Problem -> Standings -> Leaderboard
   const candidateCtx = await browser.newContext()
   const page = await candidateCtx.newPage()
   page.setDefaultTimeout(15000)
 
-  // Visit contests page
+  // Candidate login
+  await page.goto('http://localhost:3000/login')
+  await page.getByLabel('Email', { exact: true }).fill('phase3-candidate@example.test')
+  await page.getByLabel('Password', { exact: true }).fill(candidatePassword)
+  await page.getByRole('button', { name: /Sign in|Login/i }).click()
+
+  // Candidate discovers contest
   await page.goto('http://localhost:3000/contests')
   await expect(page.getByText('Competitive Contests')).toBeVisible()
   await expect(page.getByText('Browser ICPC Challenge 2026')).toBeVisible()
 
-  // Visit contest detail page
+  // Candidate views contest detail page
   await page.goto('http://localhost:3000/contests/browser-test-contest')
   await expect(page.getByText('Browser ICPC Challenge 2026')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Register for Contest' })).toBeVisible()
+
+  // Candidate registers if not registered
+  const registerBtn = page.getByRole('button', { name: 'Register for Contest' })
+  if (await registerBtn.isVisible()) {
+    await registerBtn.click()
+  }
+
+  // View Problem A statement and starter code
+  await page.getByRole('button', { name: /Problems/i }).click()
+  await expect(page.getByText('Browser Two Sum')).toBeVisible()
 
   // Switch to standings tab
   await page.getByRole('button', { name: /Standings/i }).click()
@@ -73,6 +221,10 @@ test('Phase 3 contests, standings, and leaderboard browser journeys', async ({ b
   await expect(page.getByText('Global Competition Rankings')).toBeVisible()
   await expect(page.getByRole('cell', { name: 'Competitor', exact: true })).toBeVisible()
   await expect(page.getByRole('cell', { name: 'Rating', exact: true })).toBeVisible()
+
+  // Security check: Candidate is denied access to staff admin panel
+  await page.goto('http://localhost:3001/admin/contests')
+  await expect(page).toHaveURL(/login/)
 
   // 2. Admin staff browser context
   const adminCtx = await browser.newContext()
