@@ -56,6 +56,10 @@ describe('typed external checking', () => {
     expect(compareFunction(double, '1', '1.05', { kind: 'float', absolute: 0.1 })).toBe(true)
     expect(compareFunction(double, '1', '1.2', { kind: 'float', absolute: 0.1 })).toBe(false)
     expect(() => compareFunction(signature, '1', '2', { kind: 'float', absolute: 0.1 })).toThrow()
+    for (const actual of ['null', 'invalid JSON'])
+      expect(() =>
+        compareFunction(signature, '1', actual, { kind: 'float', absolute: 0.1 })
+      ).toThrow('Functional float checking requires double return values')
     const text = { ...signature, returns: { kind: 'prim', name: 'string' } }
     expect(compareFunction(text, '"a b"', '"a  b"', { kind: 'token' })).toBe(false)
   })

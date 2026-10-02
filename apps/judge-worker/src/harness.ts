@@ -108,6 +108,9 @@ export function compareFunction(
   const parsed = PracticeComparison.safeParse(rawPolicy)
   if (!parsed.success) throw new CheckerFailure('Invalid functional comparison policy')
   const policy = parsed.data
+  const floating = (sig.returns.kind === 'prim' ? sig.returns : sig.returns.of).name === 'double'
+  if (policy.kind === 'float' && !floating)
+    throw new CheckerFailure('Functional float checking requires double return values')
   const jury: unknown = JSON.parse(expected)
   if (!validatePracticeValue(sig.returns, jury)) throw new CheckerFailure('Invalid functional jury')
   let value: unknown
@@ -117,9 +120,6 @@ export function compareFunction(
     return false
   }
   if (!validatePracticeValue(sig.returns, value)) return false
-  const floating = (sig.returns.kind === 'prim' ? sig.returns : sig.returns.of).name === 'double'
-  if (policy.kind === 'float' && !floating)
-    throw new CheckerFailure('Functional float checking requires double return values')
   const equal = (a: unknown, b: unknown): boolean => {
     if (Array.isArray(a) && Array.isArray(b))
       return a.length === b.length && a.every((v, i) => equal(v, b[i]))
