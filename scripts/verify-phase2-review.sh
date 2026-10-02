@@ -2,8 +2,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ $# == 0 ]] || { echo 'Review acceptance cannot skip checks' >&2; exit 1; }
+previous_engine="${FORGE_JUDGE_ENGINE:-}"
 cleanup() {
-  if [[ ${FORGE_JUDGE_ENGINE:-} =~ ^codeforge-p2-engine-[a-f0-9]+$ ]]; then docker rm -fv "$FORGE_JUDGE_ENGINE" >/dev/null; fi
+  if [[ ${FORGE_JUDGE_ENGINE:-} != "$previous_engine" && ${FORGE_JUDGE_ENGINE:-} =~ ^codeforge-p2-engine-[a-f0-9]+$ ]]; then docker rm -fv "$FORGE_JUDGE_ENGINE" >/dev/null; fi
 }
 trap cleanup EXIT
 pnpm --filter @codeforge/shared build

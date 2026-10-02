@@ -37,6 +37,8 @@ jobs:
         with: { node-version: '20', cache: 'pnpm' }
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      - name: Review helper preserves inherited engine on build failure
+        run: bash scripts/test-judge-review-cleanup.sh
       - name: Required isolated execution, recovery, capacity, browser and restore
         shell: bash
         run: |
