@@ -79,7 +79,10 @@ test('Phase 3 contests, standings, and leaderboard browser journeys', async ({ b
     languages: ['cpp', 'python'],
     limits: { timeMs: 1000, memoryKb: 131072, outputKb: 64 },
     checker: { kind: 'token', absolute: 0, relative: 0 },
-    cases: [{ input: '2 3\n', output: '5\n', sample: true, explanation: '2+3=5' }],
+    cases: [
+      { input: '2 3\n', output: '5\n', sample: true, explanation: '2+3=5' },
+      { input: '10 20\n', output: '30\n', sample: false, explanation: '10+20=30' },
+    ],
     references: [
       {
         language: 'python',
@@ -100,6 +103,8 @@ test('Phase 3 contests, standings, and leaderboard browser journeys', async ({ b
   const version = await prisma.practiceVersion.upsert({
     where: { problemId_number: { problemId: problem.id, number: 1 } },
     update: {
+      package: pkg as unknown as Prisma.InputJsonValue,
+      packageHash: pkgHash,
       validation: { status: 'VALIDATED', passed: true },
       status: 'PUBLISHED',
       publishedAt: new Date(),
