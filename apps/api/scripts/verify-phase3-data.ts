@@ -59,6 +59,15 @@ async function syntheticContestSubmission(input: Parameters<typeof enqueueContes
  * Real isolated judge execution and gVisor worker acceptance is certified by verify-phase3-judge.
  */
 export async function runPhase3Verification() {
+  const database = new URL(process.env.DATABASE_URL ?? '')
+  if (
+    process.env.SEED_DISPOSABLE_DATABASE !== '1' ||
+    database.username !== 'phase2' ||
+    !['127.0.0.1', 'localhost'].includes(database.hostname) ||
+    !/^\/phase3_(?:review_)?[a-f0-9]{32}$/.test(database.pathname)
+  ) {
+    throw new Error('Synthetic data verification requires the fresh disposable Phase 3 database')
+  }
   console.log('--- Starting Phase 3 Core Data & Operational Verification (Synthetic Fixtures) ---')
   console.log('NOTE: Real isolated worker execution is certified by verify-phase3-judge.')
   const app = await buildApp()
@@ -313,7 +322,7 @@ export async function runPhase3Verification() {
     })
     await prisma.contestSubmission.update({
       where: { id: sub0.submission.id },
-      data: { state: 'FINISHED', verdict: 'ACCEPTED' },
+      data: { state: 'TERMINAL', verdict: 'ACCEPTED' },
     })
     await prisma.practiceJob.update({
       where: { id: sub0.job.id },
@@ -335,7 +344,7 @@ export async function runPhase3Verification() {
     })
     await prisma.contestSubmission.update({
       where: { id: sub1_wa.submission.id },
-      data: { state: 'FINISHED', verdict: 'WRONG_ANSWER' },
+      data: { state: 'TERMINAL', verdict: 'WRONG_ANSWER' },
     })
     await prisma.practiceJob.update({
       where: { id: sub1_wa.job.id },
@@ -357,7 +366,7 @@ export async function runPhase3Verification() {
     })
     await prisma.contestSubmission.update({
       where: { id: sub1_ac.submission.id },
-      data: { state: 'FINISHED', verdict: 'ACCEPTED' },
+      data: { state: 'TERMINAL', verdict: 'ACCEPTED' },
     })
     await prisma.practiceJob.update({
       where: { id: sub1_ac.job.id },
@@ -379,7 +388,7 @@ export async function runPhase3Verification() {
     })
     await prisma.contestSubmission.update({
       where: { id: sub2_wa1.submission.id },
-      data: { state: 'FINISHED', verdict: 'WRONG_ANSWER' },
+      data: { state: 'TERMINAL', verdict: 'WRONG_ANSWER' },
     })
     await prisma.practiceJob.update({
       where: { id: sub2_wa1.job.id },
@@ -401,7 +410,7 @@ export async function runPhase3Verification() {
     })
     await prisma.contestSubmission.update({
       where: { id: sub2_wa2.submission.id },
-      data: { state: 'FINISHED', verdict: 'WRONG_ANSWER' },
+      data: { state: 'TERMINAL', verdict: 'WRONG_ANSWER' },
     })
     await prisma.practiceJob.update({
       where: { id: sub2_wa2.job.id },
@@ -536,7 +545,7 @@ export async function runPhase3Verification() {
     })
     await prisma.contestSubmission.update({
       where: { id: sub0_c2.submission.id },
-      data: { state: 'FINISHED', verdict: 'ACCEPTED' },
+      data: { state: 'TERMINAL', verdict: 'ACCEPTED' },
     })
     await prisma.practiceJob.update({
       where: { id: sub0_c2.job.id },
@@ -558,7 +567,7 @@ export async function runPhase3Verification() {
     })
     await prisma.contestSubmission.update({
       where: { id: subNew.submission.id },
-      data: { state: 'FINISHED', verdict: 'ACCEPTED' },
+      data: { state: 'TERMINAL', verdict: 'ACCEPTED' },
     })
     await prisma.practiceJob.update({
       where: { id: subNew.job.id },

@@ -17,6 +17,14 @@ import { handleError } from '../src/errors.js'
 // disposable PostgreSQL database. It proves transactional workflows, not judge
 // execution, package validation, isolation, language support, or browser behavior.
 export async function verifyPhase3Operations() {
+  const database = new URL(process.env.DATABASE_URL ?? '')
+  assert.ok(
+    process.env.SEED_DISPOSABLE_DATABASE === '1' &&
+      database.username === 'phase2' &&
+      ['127.0.0.1', 'localhost'].includes(database.hostname) &&
+      /^\/phase3_(?:review_)?[a-f0-9]{32}$/.test(database.pathname),
+    'Fresh loopback Phase 3 database required'
+  )
   assert.equal(
     process.env.PHASE3_DISPOSABLE_DATABASE,
     '1',
