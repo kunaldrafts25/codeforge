@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { PracticeLanguage } from './practice.js'
+import { PracticeLanguage, PracticeSignature } from './practice.js'
 
 export const SCORING_POLICIES = ['icpc-binary-v1'] as const
 export const ScoringPolicy = z.enum(SCORING_POLICIES)
@@ -222,6 +222,8 @@ export const ContestDetailProblem = z.object({
       })
     )
     .nullish(),
+  mode: z.enum(['STDIO', 'FUNCTIONAL']).optional(),
+  signature: PracticeSignature.nullish(),
   starters: z.record(z.string(), z.string()).nullish(),
   languages: z.array(PracticeLanguage).nullish(),
   solved: z.boolean().default(false),
@@ -280,6 +282,10 @@ export const ContestFinalizeBody = z
 export const GlobalLeaderboardQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(50),
+  revision: z
+    .string()
+    .regex(/^[a-f0-9]{32}$/)
+    .optional(),
 })
 
 export const GlobalLeaderboardUser = z.object({
@@ -295,6 +301,7 @@ export const GlobalLeaderboardUser = z.object({
 })
 
 export const GlobalLeaderboardResponse = z.object({
+  revision: z.string(),
   users: z.array(GlobalLeaderboardUser),
   total: z.number().int(),
   page: z.number().int(),

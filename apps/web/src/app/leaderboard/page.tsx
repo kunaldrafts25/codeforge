@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { isAxiosError } from 'axios'
 import { api } from '@/lib/api'
 import { getRatingColor, getRatingTitle, cn } from '@/lib/utils'
 import { logger } from '@/lib/logger'
@@ -19,6 +20,7 @@ interface LeaderboardUser {
 }
 
 interface LeaderboardResponse {
+  revision: string
   users: LeaderboardUser[]
   total: number
   page: number
@@ -28,6 +30,7 @@ interface LeaderboardResponse {
 
 export default function LeaderboardPage() {
   const [data, setData] = useState<LeaderboardResponse>({
+    revision: '',
     users: [],
     total: 0,
     page: 1,
@@ -36,13 +39,22 @@ export default function LeaderboardPage() {
   })
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
+  const revisionRef = useRef<string>()
 
   const fetchLeaderboard = useCallback(async () => {
     try {
       setLoading(true)
-      const res = await api.get('/leaderboard', { params: { page, limit: 50 } })
+      const res = await api.get('/leaderboard', {
+        params: { page, limit: 50, revision: page > 1 ? revisionRef.current : undefined },
+      })
+      revisionRef.current = res.data.revision
       setData(res.data)
     } catch (err) {
+      if (isAxiosError(err) && err.response?.status === 409 && page > 1) {
+        revisionRef.current = undefined
+        setPage(1)
+        return
+      }
       logger.error('Failed to fetch leaderboard:', err)
     } finally {
       setLoading(false)

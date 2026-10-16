@@ -9,6 +9,7 @@ $phase3Database = 'phase3_' + [Guid]::NewGuid().ToString('N')
 $phase3Restore = $phase3Database + '_restore'
 $phase3Project = 'codeforge-' + $phase3Database.Replace('_', '-')
 $env:PHASE2_POSTGRES_PASSWORD = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
+try {
 Invoke-Phase3Checked { docker compose -p $phase3Project -f docker-compose.phase2.yml up -d --wait postgres }
 $phase3Address = docker compose -p $phase3Project -f docker-compose.phase2.yml port postgres 5432
 if ($LASTEXITCODE -ne 0 -or $phase3Address -notmatch '^127\.0\.0\.1:([0-9]+)$') { throw 'Disposable loopback endpoint unavailable' }
@@ -57,17 +58,13 @@ Write-Output 'PASS: Existing Phase 1 and Phase 2 table fingerprints unchanged by
 
 # Run Phase 3 verification
 Invoke-Phase3Checked { pnpm --filter @codeforge/api exec tsx scripts/verify-phase3-data.ts }
+$env:PHASE3_DISPOSABLE_DATABASE = '1'
+Invoke-Phase3Checked { pnpm --filter @codeforge/api exec tsx scripts/verify-phase3-operations.ts }
 
 if (-not $SkipStatic) {
   Invoke-Phase3Checked { pnpm typecheck }
   Invoke-Phase3Checked { pnpm test }
   Invoke-Phase3Checked { pnpm build }
-}
-
-if (-not $SkipBrowser) {
-  $env:NODE_ENV = 'development'
-  $env:PLAYWRIGHT_TEST_MATCH = '**/phase3.spec.ts'
-  Invoke-Phase3Checked { pnpm exec playwright test tests/e2e/phase3.spec.ts }
 }
 
 # Dump and restore verification
@@ -82,6 +79,12 @@ $phase3SourceDigest = Get-Content -LiteralPath 'scripts/phase3-restore-fingerpri
 $phase3RestoreDigest = Get-Content -LiteralPath 'scripts/phase3-restore-fingerprint.sql' -Raw | docker compose -p $phase3Project -f docker-compose.phase2.yml exec -T postgres psql -U phase2 -d $phase3Restore -At -v ON_ERROR_STOP=1
 if ($LASTEXITCODE -ne 0 -or ($phase3SourceDigest -join "`n") -cne ($phase3RestoreDigest -join "`n")) { throw 'Restored Phase 3 database does not match original database' }
 
-docker compose -p $phase3Project -f docker-compose.phase2.yml down
-
-Write-Output 'PASS: Phase 3 full verification, migrations, replay, dump, and restore fingerprint match.'
+Write-Output 'PASS: Phase 3 data verification, migrations, replay, dump, and restore fingerprint match.'
+} finally {
+  docker compose -p $phase3Project -f docker-compose.phase2.yml down
+}
+if (-not $SkipBrowser) {
+  Invoke-Phase3Checked { & .\scripts\verify-phase3-judge.ps1 }
+} else {
+  Write-Output 'Real judge/browser gate was not requested; this data-only run cannot accept Gate P3.'
+}

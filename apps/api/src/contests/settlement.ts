@@ -4,12 +4,17 @@ import { computePairwiseElo, type CompetitorRatingInput } from './rating.js'
 import { canonical, hash } from '../practice/package.js'
 import { conflict, notFound } from '../errors.js'
 
+const GLOBAL_SETTLEMENT_LOCK = 948271038571029n & 0x1fffffffffffffn
+
 export async function finalizeContest(
   contestId: string,
   actorId: string,
-  _idempotencyKey?: string
+  _idempotencyKey?: string,
+  transaction?: Prisma.TransactionClient
 ) {
-  return practiceTransaction(prisma, async tx => {
+  const execute = async (tx: Prisma.TransactionClient) => {
+    await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${GLOBAL_SETTLEMENT_LOCK})`)
+
     const contest = await tx.contest.findUnique({
       where: { id: contestId },
       include: {
@@ -62,6 +67,15 @@ export async function finalizeContest(
           )
         }
         if (existingJob.state === 'COMPLETED' || existingJob.state === 'TERMINAL') {
+          if (existingJob.payload) {
+            return existingJob.payload as unknown as {
+              contestId: string
+              status: string
+              isRated: boolean
+              snapshot: unknown
+              settlementJobId?: string
+            }
+          }
           const snapshot = await tx.contestScoreboardSnapshot.findFirst({
             where: { contestId, isFrozen: false },
             orderBy: { revision: 'desc' },
@@ -103,6 +117,19 @@ export async function finalizeContest(
         `Cannot finalize while ${pendingJobs} submissions are still being judged`
       )
     }
+
+    const incomplete = await tx.contestSubmission.count({
+      where: {
+        contestId: contest.id,
+        isAuthoritative: true,
+        OR: [{ state: { not: 'TERMINAL' } }, { verdict: null }, { verdict: 'JUDGE_FAILURE' }],
+      },
+    })
+    if (incomplete)
+      throw conflict(
+        'PENDING_SUBMISSIONS',
+        'Every authoritative admitted attempt needs a deterministic terminal verdict'
+      )
 
     // ── P3-R5 fix: only count DEAD_LETTER for the latest generation per submission lineage. ──
     // An old failed generation followed by a successful rejudge must not block settlement.
@@ -398,17 +425,7 @@ export async function finalizeContest(
       },
     })
 
-    if (settlementJob) {
-      await tx.contestSettlementJob.update({
-        where: { id: settlementJob.id },
-        data: {
-          state: 'COMPLETED',
-          finishedAt: new Date(),
-        },
-      })
-    }
-
-    return {
+    const result = {
       contestId: contest.id,
       status: 'FINALIZED',
       isRated: contest.isRated,
@@ -416,7 +433,23 @@ export async function finalizeContest(
       ratingsCount: ratingResults.length,
       settlementJobId: settlementJob?.id,
     }
-  })
+
+    if (settlementJob) {
+      await tx.contestSettlementJob.update({
+        where: { id: settlementJob.id },
+        data: {
+          state: 'COMPLETED',
+          finishedAt: new Date(),
+          payload: result as unknown as Prisma.InputJsonValue,
+        },
+      })
+    }
+
+    return result
+  }
+  return transaction
+    ? execute(transaction)
+    : practiceTransaction(prisma, execute, { timeout: 60000 })
 }
 
 /**
@@ -427,20 +460,48 @@ export async function finalizeContest(
  * - Disqualified users are added to allAffectedUsers so their projections are corrected
  * - Users who lose ALL authoritative ledger entries are reset to 1500/0/null
  * - Revised scoreboard snapshots are published (revision incremented)
+ * P3-R5 fixes:
+ * - Advisory lock serialization on GLOBAL_SETTLEMENT_LOCK
+ * - Strict idempotency via _idempotencyKey and ContestSettlementJob
  */
 export async function replayChronologicalContests(
   fromContestId: string,
   actorId: string,
   reason: string,
-  _idempotencyKey?: string
+  _idempotencyKey?: string,
+  transaction?: Prisma.TransactionClient
 ) {
-  return practiceTransaction(prisma, async tx => {
+  const execute = async (tx: Prisma.TransactionClient) => {
+    await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${GLOBAL_SETTLEMENT_LOCK})`)
+
     const rootContest = await tx.contest.findUniqueOrThrow({
       where: { id: fromContestId },
     })
 
-    if (!rootContest.isRated) {
-      throw conflict('NOT_RATED', 'Replay only applies to rated contests')
+    if (rootContest.status !== 'FINALIZED') {
+      throw conflict('CONTEST_NOT_FINALIZED', 'Only finalized contests can be replayed')
+    }
+
+    if (_idempotencyKey) {
+      const existingJob = await tx.contestSettlementJob.findUnique({
+        where: { operationId: _idempotencyKey },
+      })
+      if (existingJob) {
+        if (existingJob.contestId !== fromContestId) {
+          throw conflict(
+            'IDEMPOTENCY_CONFLICT',
+            'Operation ID was already used for a different contest'
+          )
+        }
+        if (existingJob.state === 'COMPLETED' || existingJob.state === 'TERMINAL') {
+          return existingJob.payload as {
+            rootContestId: string
+            replayedContestsCount: number
+            generation: number
+            affectedUsersCount: number
+          }
+        }
+      }
     }
 
     // Find the next global ledger generation
@@ -453,12 +514,16 @@ export async function replayChronologicalContests(
     // starting from rootContest
     const chain = await tx.contest.findMany({
       where: {
-        isRated: true,
         status: 'FINALIZED',
-        OR: [
-          { endTime: { gt: rootContest.endTime } },
-          { endTime: rootContest.endTime, id: { gte: rootContest.id } },
-        ],
+        ...(rootContest.isRated
+          ? {
+              isRated: true,
+              OR: [
+                { endTime: { gt: rootContest.endTime } },
+                { endTime: rootContest.endTime, id: { gte: rootContest.id } },
+              ],
+            }
+          : { id: rootContest.id }),
       },
       orderBy: [{ endTime: 'asc' }, { id: 'asc' }],
       include: {
@@ -470,6 +535,26 @@ export async function replayChronologicalContests(
         },
       },
     })
+
+    // Readiness must be checked inside the publication transaction, for every
+    // dependent contest, not only in the HTTP handler for the root contest.
+    const chainIdsForReadiness = chain.map(c => c.id)
+    const unsettled = await tx.contestSubmission.count({
+      where: {
+        contestId: { in: chainIdsForReadiness },
+        isAuthoritative: true,
+        OR: [{ state: { not: 'TERMINAL' } }, { verdict: null }, { verdict: 'JUDGE_FAILURE' }],
+      },
+    })
+    const disputes = await tx.contestDispute.count({
+      where: { contestId: { in: chainIdsForReadiness }, status: { in: ['OPEN', 'INVESTIGATING'] } },
+    })
+    if (unsettled || disputes) {
+      throw conflict(
+        'SETTLEMENT_NOT_READY',
+        'Replacement verdicts and blocking disputes must be resolved before replay'
+      )
+    }
 
     // Simulated ledger state for tracking users' rating during replay
     const simRatings = new Map<string, { rating: number; maxRating: number; count: number }>()
@@ -571,7 +656,7 @@ export async function replayChronologicalContests(
 
       const eloResult = computePairwiseElo(eligibleInputs)
 
-      if (eloResult.isEligible) {
+      if (c.isRated && eloResult.isEligible) {
         const manifestHash = c.activeManifest?.manifestHash ?? hash(c.id)
         const scoringHash = hash(canonical(finalEntries))
 
@@ -660,7 +745,7 @@ export async function replayChronologicalContests(
 
     // ── P3-R4 fix: Update User projections for ALL affected users (including disqualified). ──
     // Users with zero authoritative ledger entries are reset to policy baseline (1500/0/null).
-    for (const userId of allAffectedUsers) {
+    for (const userId of rootContest.isRated ? allAffectedUsers : []) {
       const latest = await tx.contestRatingLedger.findFirst({
         where: { userId, isAuthoritative: true },
         include: { contest: true },
@@ -714,11 +799,38 @@ export async function replayChronologicalContests(
       },
     })
 
-    return {
+    const result = {
       rootContestId: rootContest.id,
       replayedContestsCount: chain.length,
       generation: nextGeneration,
       affectedUsersCount: allAffectedUsers.size,
     }
-  })
+
+    if (_idempotencyKey) {
+      await tx.contestSettlementJob.upsert({
+        where: { operationId: _idempotencyKey },
+        create: {
+          contestId: rootContest.id,
+          operationId: _idempotencyKey,
+          type: 'REPLAY',
+          state: 'COMPLETED',
+          generation: nextGeneration,
+          startedAt: new Date(),
+          finishedAt: new Date(),
+          payload: result as unknown as Prisma.InputJsonValue,
+        },
+        update: {
+          state: 'COMPLETED',
+          generation: nextGeneration,
+          finishedAt: new Date(),
+          payload: result as unknown as Prisma.InputJsonValue,
+        },
+      })
+    }
+
+    return result
+  }
+  return transaction
+    ? execute(transaction)
+    : practiceTransaction(prisma, execute, { timeout: 60000 })
 }

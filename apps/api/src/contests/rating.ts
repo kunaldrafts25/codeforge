@@ -32,19 +32,33 @@ const SCALE = 1_000_000_000_000n // 10^12 for 12 decimal places
  * Reverse is 1 - E(i,j) exactly.
  */
 export function computePairwiseExpected(ri: number, rj: number): { e_ij: bigint; e_ji: bigint } {
-  const diff = (rj - ri) / 400
-
-  if (diff >= 50) {
+  if (!Number.isFinite(ri) || !Number.isFinite(rj)) throw new Error('Ratings must be finite')
+  const delta = BigInt(Math.round((rj - ri) * 1_000_000))
+  if (delta >= 20_000_000_000n) {
     return { e_ij: 0n, e_ji: SCALE }
   }
-  if (diff <= -50) {
+  if (delta <= -20_000_000_000n) {
     return { e_ij: SCALE, e_ji: 0n }
   }
 
-  const p = 1 / (1 + Math.pow(10, diff))
-  // Quantize to 12 decimal places with round-half-up
-  const scaled = Math.round(p * 1e12)
-  const e_ij = BigInt(scaled)
+  // Fixed point at 60 decimal places, with argument reduction by 256 and
+  // repeated squaring. Quantization never crosses a binary floating point
+  // probability. The independent test oracle decomposes powers of ten instead.
+  const precision = 10n ** 60n
+  const ln10 = 2302585092994045684017991454684364207601101488628772976033327n
+  const magnitude = delta < 0n ? -delta : delta
+  const x = (magnitude * ln10) / (400_000_000n * 256n)
+  let exponential = precision
+  let term = precision
+  for (let n = 1n; n <= 100n; n++) {
+    term = (term * x) / (precision * n)
+    if (term === 0n) break
+    exponential += term
+  }
+  for (let i = 0; i < 8; i++) exponential = (exponential * exponential) / precision
+  const denominator = precision + exponential
+  const numerator = (delta < 0n ? exponential : precision) * SCALE
+  const e_ij = (2n * numerator + denominator) / (2n * denominator)
   const e_ji = SCALE - e_ij
   return { e_ij, e_ji }
 }

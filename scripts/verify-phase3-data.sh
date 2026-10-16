@@ -46,11 +46,7 @@ echo 'PASS: Existing Phase 1 and Phase 2 data fingerprints preserved.'
 
 # Run Phase 3 end-to-end data, rating, scoring, and replay verification
 pnpm --filter @codeforge/api exec tsx scripts/verify-phase3-data.ts
-
-if [[ ${1:-} == '--browser' ]]; then
-  export NODE_ENV=development
-  PLAYWRIGHT_TEST_MATCH='**/phase3.spec.ts' pnpm exec playwright test tests/e2e/phase3.spec.ts
-fi
+PHASE3_DISPOSABLE_DATABASE=1 pnpm --filter @codeforge/api exec tsx scripts/verify-phase3-operations.ts
 
 # Test full pg_dump and pg_restore with Phase 3 fingerprint
 "${compose[@]}" exec -T postgres pg_dump -U phase2 -d "$database" -Fc --no-owner --no-privileges -f /tmp/phase3.dump
@@ -62,3 +58,8 @@ restore_digest="$("${compose[@]}" exec -T postgres psql -U phase2 -d "$restore" 
 printf '%s\n' "$source_digest"
 "${compose[@]}" exec -T postgres sha256sum /tmp/phase3.dump
 echo 'PASS: Phase 3 disposable Linux/PostgreSQL data, scoring, rating, replay, and private restore.'
+
+# A browser lifecycle needs actual isolated judging, not synthetic data fixtures.
+if [[ ${1:-} == '--browser' ]]; then
+  bash scripts/verify-phase3-judge.sh
+fi

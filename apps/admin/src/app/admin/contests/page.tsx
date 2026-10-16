@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AdminShell } from '@/components/AdminShell'
 import { api } from '@/lib/api'
 
@@ -32,6 +32,7 @@ type Contest = {
       title: string
     }[]
   } | null
+  draftManifest?: NonNullable<Contest['activeManifest']> | null
   participantsCount?: number
   _count?: {
     participants: number
@@ -72,6 +73,38 @@ export default function AdminContestsPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+
+  const operationKeys = useRef(new Map<string, string>())
+  const runOperation = async (path: string, body: Record<string, unknown>) => {
+    if (!selectedContest) throw new Error('Select a contest first')
+    const action = JSON.stringify([path, body])
+    let key = operationKeys.current.get(action)
+    if (!key) {
+      key = crypto.randomUUID()
+      operationKeys.current.set(action, key)
+    }
+    const response = await api.post(path, { ...body, idempotencyKey: key })
+    if (!response.data.settlementJobId) {
+      throw new Error('Operation response is missing its tracking ID')
+    }
+    setNotice('Operation queued. Waiting for verified judging and rating settlement...')
+    const deadline = Date.now() + 240000
+    while (Date.now() < deadline) {
+      const status = await api.get(`/contests/staff/${selectedContest.id}/operations`)
+      const operation = status.data.operations.find(
+        (op: { settlementJobId: string }) => op.settlementJobId === response.data.settlementJobId
+      )
+      if (['COMPLETED', 'TERMINAL'].includes(operation?.state)) {
+        operationKeys.current.delete(action)
+        return operation.result as { participantsCount?: number; replayedContestsCount?: number }
+      }
+      if (operation?.state === 'DEAD_LETTER') {
+        throw new Error(operation.errorReason || 'Operation needs administrator attention')
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+    throw new Error('Operation is still pending. Retry to resume tracking this operation.')
+  }
 
   // Create form state
   const [showCreate, setShowCreate] = useState(false)
@@ -134,8 +167,9 @@ export default function AdminContestsPage() {
     try {
       const res = await api.get(`/contests/${c.slug}`)
       setSelectedContest(res.data)
-      if (res.data.activeManifest?.problems) {
-        setManifestProblems(res.data.activeManifest.problems)
+      const displayManifest = res.data.draftManifest ?? res.data.activeManifest
+      if (displayManifest?.problems) {
+        setManifestProblems(displayManifest.problems)
       } else {
         setManifestProblems([])
       }
@@ -161,7 +195,7 @@ export default function AdminContestsPage() {
         title: newTitle.trim(),
         slug: newSlug.trim().toLowerCase(),
         description: newDescription.trim(),
-        format: 'icpc-binary-v1' as const,
+        format: 'ICPC' as const,
         startTime: new Date(newStartTime).toISOString(),
         endTime: new Date(newEndTime).toISOString(),
         freezeAt: newFreezeAt ? new Date(newFreezeAt).toISOString() : null,
@@ -242,11 +276,13 @@ export default function AdminContestsPage() {
     setNotice('')
     setBusy(true)
     try {
-      const res = await api.post(`/contests/${selectedContest.slug}/seal`, {
-        problems: manifestProblems,
-        sealReason: 'Authoritative contest problem set sealed by contest administrator.',
+      await api.post(`/contests/${selectedContest.slug}/seal`, {
+        rightsConfirmed: true,
+        manifestHash: selectedContest.draftManifest?.manifestHash,
       })
-      setNotice(`Manifest sealed successfully! Hash: ${res.data.manifestHash}`)
+      setNotice(
+        `Manifest sealed successfully! Hash: ${selectedContest.draftManifest?.manifestHash}`
+      )
       await selectContest(selectedContest)
       await fetchContests()
     } catch (err: unknown) {
@@ -269,11 +305,9 @@ export default function AdminContestsPage() {
     setNotice('')
     setBusy(true)
     try {
-      const res = await api.post(`/contests/${selectedContest.slug}/finalize`, {
-        settlementNotes: 'Official contest finalization and rating settlement.',
-      })
+      const result = await runOperation(`/contests/${selectedContest.slug}/finalize`, {})
       setNotice(
-        `Contest finalized successfully! Processed participants: ${res.data.participantsCount}`
+        `Contest finalized successfully! Processed participants: ${result.participantsCount ?? 'all eligible'}`
       )
       await selectContest(selectedContest)
       await fetchContests()
@@ -314,14 +348,16 @@ export default function AdminContestsPage() {
     setNotice('')
     setBusy(true)
     try {
-      await api.post(
+      await runOperation(
         `/contests/${selectedContest.slug}/submissions/${rejudgeSubmissionId.trim()}/rejudge`,
         {
           correctionType: 'CORRECTION_REJUDGE',
           reason: rejudgeReason.trim() || 'Manual rejudge initiated by contest administrator.',
         }
       )
-      setNotice(`Submission ${rejudgeSubmissionId} rejudge enqueued successfully!`)
+      setNotice(
+        `Submission ${rejudgeSubmissionId} rejudge completed and dependent standings updated.`
+      )
       setRejudgeSubmissionId('')
       setRejudgeReason('')
     } catch (err: unknown) {
@@ -344,10 +380,12 @@ export default function AdminContestsPage() {
     setNotice('')
     setBusy(true)
     try {
-      const res = await api.post(`/contests/${selectedContest.slug}/replay`, {
+      const result = await runOperation(`/contests/${selectedContest.slug}/replay`, {
         reason: 'Chronological replay triggered by administrator.',
       })
-      setNotice(`Replay completed across ${res.data.replayedContestsCount} contests!`)
+      setNotice(
+        `Replay completed across ${result.replayedContestsCount ?? 'all affected'} contests!`
+      )
       await selectContest(selectedContest)
       await fetchContests()
     } catch (err: unknown) {

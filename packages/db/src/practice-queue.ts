@@ -17,12 +17,14 @@ const terminalVerdicts = [
 
 async function serial<T>(
   db: PrismaClient,
-  fn: (tx: Prisma.TransactionClient) => Promise<T>
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  options: { timeout?: number } = {}
 ): Promise<T> {
   for (let n = 0; n < 4; n++) {
     try {
       return await db.$transaction(fn, {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        ...options,
       })
     } catch (e) {
       if (
@@ -404,6 +406,9 @@ export async function rejudgePracticeJob(
     throw new Error('Rejudge reason required')
   return serial(db, async tx => {
     const old = await tx.practiceJob.findUniqueOrThrow({ where: { id: input.id } })
+    if (old.scope !== 'PRACTICE') {
+      throw new Error('Only practice jobs can be rejudged via practice queue')
+    }
     if (
       !['RUN', 'SUBMIT', 'VALIDATE'].includes(old.kind) ||
       !['TERMINAL', 'DEAD_LETTER'].includes(old.state)

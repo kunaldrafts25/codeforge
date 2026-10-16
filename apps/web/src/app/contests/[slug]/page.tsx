@@ -1,11 +1,13 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { logger } from '@/lib/logger'
+import { useAuth } from '@/lib/auth'
+import { Admin, type PracticeSignature } from '@codeforge/shared'
 import {
   Clock,
   Trophy,
@@ -29,6 +31,8 @@ interface ContestProblem {
   outputFormat?: string
   constraints?: string
   samples?: Array<{ input: string; output: string; explanation?: string | null }>
+  mode?: 'STDIO' | 'FUNCTIONAL'
+  signature?: PracticeSignature | null
   starters?: Record<string, string>
   languages?: string[]
   solved?: boolean
@@ -88,6 +92,10 @@ interface LeaderboardData {
 
 export default function ContestDetailPage() {
   const { slug } = useParams()
+  const { user, loading: authLoading } = useAuth()
+  const selectedLabel = useRef<string | null>(null)
+  const loadedIdentity = useRef('')
+  const pendingAdmission = useRef<{ content: string; key: string } | null>(null)
   const [contest, setContest] = useState<Contest | null>(null)
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -111,21 +119,72 @@ export default function ContestDetailPage() {
   const [disputeProblemLabel, setDisputeProblemLabel] = useState('A')
   const [showDisputeModal, setShowDisputeModal] = useState(false)
 
+  const draftKey = useCallback(
+    (problem: ContestProblem, lang: string) =>
+      user ? `codeforge:contest-draft:${user.id}:${slug}:${problem.problemId}:${lang}` : null,
+    [slug, user]
+  )
+  const saveDraft = (value: string) => {
+    setCode(value)
+    if (!selectedProblem) return
+    const key = draftKey(selectedProblem, language)
+    if (key) {
+      try {
+        localStorage.setItem(key, value)
+      } catch {
+        /* Storage may be disabled. */
+      }
+    }
+  }
+  const openProblem = useCallback(
+    (problem: ContestProblem, requestedLanguage: string) => {
+      const supported = problem.languages ?? []
+      const nextLanguage = supported.includes(requestedLanguage)
+        ? requestedLanguage
+        : (supported[0] ?? 'python')
+      selectedLabel.current = problem.label
+      setSelectedProblem(problem)
+      setLanguage(nextLanguage)
+      let initial = problem.starters?.[nextLanguage] ?? ''
+      if (!initial && problem.mode === 'FUNCTIONAL' && problem.signature) {
+        initial = Admin.generateStarter(problem.signature, nextLanguage)
+      }
+      const key = draftKey(problem, nextLanguage)
+      if (key) {
+        try {
+          initial = localStorage.getItem(key) ?? initial
+        } catch {
+          /* Storage may be disabled. */
+        }
+      }
+      setCode(initial)
+      setLastSubmissionVerdict(null)
+    },
+    [draftKey]
+  )
+
   const fetchContest = useCallback(async () => {
+    if (authLoading) return
     try {
       const res = await api.get(`/contests/${slug}`)
-      setContest(res.data)
-      if (res.data.problems && res.data.problems.length > 0 && !selectedProblem) {
-        setSelectedProblem(res.data.problems[0])
-        const starter = res.data.problems[0].starters?.cpp || ''
-        setCode(starter)
+      const nextContest = res.data as Contest
+      setContest(nextContest)
+      const identity = `${slug}:${user?.id ?? 'guest'}`
+      if (nextContest.problems?.length) {
+        if (loadedIdentity.current !== identity || !selectedLabel.current) {
+          loadedIdentity.current = identity
+          openProblem(nextContest.problems[0]!, 'cpp')
+        } else {
+          const updated = nextContest.problems.find(p => p.label === selectedLabel.current)
+          if (updated) setSelectedProblem(updated)
+        }
       }
     } catch (err) {
       logger.error('Failed to fetch contest:', err)
     } finally {
       setLoading(false)
     }
-  }, [slug, selectedProblem])
+  }, [slug, authLoading, user?.id, openProblem])
 
   const fetchStandings = useCallback(async () => {
     try {
@@ -220,36 +279,47 @@ export default function ContestDetailPage() {
     setSubmitting(true)
     setLastSubmissionVerdict('SUBMITTING...')
     try {
+      const content = JSON.stringify([slug, selectedProblem.label, language, code])
+      if (pendingAdmission.current?.content !== content)
+        pendingAdmission.current = { content, key: crypto.randomUUID() }
       const res = await api.post(`/contests/${slug}/submit`, {
         problemLabel: selectedProblem.label,
         language,
         code,
+        idempotencyKey: pendingAdmission.current.key,
       })
-      setLastSubmissionId(res.data.submissionId)
+      pendingAdmission.current = null
+      const subId = res.data.id || res.data.submissionId
+      setLastSubmissionId(subId)
       setLastSubmissionVerdict(res.data.state ?? 'QUEUED')
       setActionNotice(
-        `Submission accepted into judge queue (ID: ${res.data.submissionId.slice(0, 8)}...)`
+        `Submission accepted into judge queue (ID: ${subId ? subId.slice(0, 8) : ''}...)`
       )
 
-      // Poll submission status
+      // Poll submission status from contest submissions endpoint
       let attempts = 0
       const poll = setInterval(async () => {
         attempts++
         try {
-          const subRes = await api.get(`/submissions/${res.data.submissionId}`)
-          if (subRes.data.state === 'FINISHED') {
-            setLastSubmissionVerdict(subRes.data.verdict)
-            clearInterval(poll)
-            setSubmitting(false)
-            await fetchContest()
-            if (activeTab === 'standings') await fetchStandings()
-          } else {
-            setLastSubmissionVerdict(subRes.data.state)
+          const subRes = await api.get(`/contests/${slug}/submissions`)
+          const matching = Array.isArray(subRes.data)
+            ? subRes.data.find((s: any) => s.id === subId)
+            : null
+          if (matching) {
+            if (['TERMINAL', 'FINISHED', 'DEAD_LETTER'].includes(matching.state)) {
+              setLastSubmissionVerdict(matching.verdict || matching.state)
+              clearInterval(poll)
+              setSubmitting(false)
+              await fetchContest()
+              if (activeTab === 'standings') await fetchStandings()
+            } else {
+              setLastSubmissionVerdict(matching.state)
+            }
           }
         } catch {
           // ignore poll error
         }
-        if (attempts > 30) {
+        if (attempts > 40) {
           clearInterval(poll)
           setSubmitting(false)
         }
@@ -268,10 +338,10 @@ export default function ContestDetailPage() {
     setActionNotice('')
     setBusy(true)
     try {
+      const desc = disputeReason.trim()
       await api.post(`/contests/${slug}/disputes`, {
-        problemLabel: disputeProblemLabel,
-        reason: disputeReason.trim(),
-        submissionId: lastSubmissionId || undefined,
+        type: 'STATEMENT_AMBIGUITY',
+        description: desc.length >= 10 ? desc : `${desc} - contest problem objection`,
       })
       setActionNotice('Contest dispute filed successfully! Contest staff will review it.')
       setShowDisputeModal(false)
@@ -479,11 +549,7 @@ export default function ContestDetailPage() {
                     <button
                       key={problem.label}
                       onClick={() => {
-                        setSelectedProblem(problem)
-                        const starter = problem.starters?.[language] || problem.starters?.cpp || ''
-                        if (!code || confirm('Switch problem and load starter?')) {
-                          setCode(starter)
-                        }
+                        openProblem(problem, language)
                       }}
                       className={cn(
                         'w-full text-left p-3.5 rounded-xl border flex items-center justify-between transition-all',
@@ -590,6 +656,17 @@ export default function ContestDetailPage() {
                       </div>
                     )}
 
+                    {selectedProblem.mode === 'FUNCTIONAL' && selectedProblem.signature && (
+                      <div className="rounded border border-border p-3 text-sm">
+                        <p>
+                          Implement <code>{selectedProblem.signature.name}</code> using the provided
+                          method signature. The judge supplies JSON arguments; return the result.
+                        </p>
+                        <pre className="mt-2 whitespace-pre-wrap break-words text-xs">
+                          {JSON.stringify(selectedProblem.signature, null, 2)}
+                        </pre>
+                      </div>
+                    )}
                     {/* Code Editor and Submit */}
                     <form
                       onSubmit={handleSubmitCode}
@@ -602,21 +679,21 @@ export default function ContestDetailPage() {
                           </label>
                           <select
                             value={language}
-                            onChange={e => {
-                              const newLang = e.target.value
-                              setLanguage(newLang)
-                              if (selectedProblem.starters?.[newLang]) {
-                                setCode(selectedProblem.starters[newLang])
-                              }
-                            }}
+                            onChange={e => openProblem(selectedProblem, e.target.value)}
                             className="text-xs rounded-lg border border-border bg-background p-1.5 font-medium"
                           >
-                            <option value="cpp">C++20 (GCC)</option>
-                            <option value="python">Python 3.12</option>
-                            <option value="typescript">TypeScript (Node)</option>
-                            <option value="java">Java 21</option>
-                            <option value="rust">Rust 1.78</option>
-                            <option value="go">Go 1.22</option>
+                            {(selectedProblem.languages ?? []).map(lang => (
+                              <option key={lang} value={lang}>
+                                {(
+                                  {
+                                    cpp: 'C++',
+                                    python: 'Python',
+                                    java: 'Java',
+                                    javascript: 'JavaScript',
+                                  } as Record<string, string>
+                                )[lang] ?? lang}
+                              </option>
+                            ))}
                           </select>
                         </div>
 
@@ -645,7 +722,7 @@ export default function ContestDetailPage() {
                           rows={12}
                           required
                           value={code}
-                          onChange={e => setCode(e.target.value)}
+                          onChange={e => saveDraft(e.target.value)}
                           placeholder="// Write your solution here..."
                           className="w-full font-mono text-xs p-4 rounded-xl border border-border bg-muted/20 text-foreground focus:outline-none focus:ring-1 focus:ring-primary leading-relaxed"
                         />

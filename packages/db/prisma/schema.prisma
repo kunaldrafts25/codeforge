@@ -753,6 +753,13 @@ model ContestSettlementJob {
   errorReason String?
   startedAt   DateTime?
   finishedAt  DateTime?
+  payload     Json?
+  request     Json?
+  requestHash String?
+  actorId     String?
+  attempts    Int       @default(0)
+  availableAt DateTime  @default(now())
+  leaseUntil  DateTime?
   createdAt   DateTime  @default(now())
 
   @@index([contestId, state])

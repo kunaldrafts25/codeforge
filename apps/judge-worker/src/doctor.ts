@@ -115,10 +115,23 @@ export async function verifyBoundary(): Promise<{
     limits: { timeMs: 5000, memoryKb: 524288, outputKb: 4 },
     jobId: `pids_${randomUUID()}`,
   })
-  const counted = JSON.parse(countProbe.cases[0]?.stdout ?? '{}') as {
-    created: number
-    peak: number
-    errno: number
+  let counted: { created: number; peak: number; errno: number }
+  try {
+    counted = JSON.parse(countProbe.cases[0]?.stdout ?? '') as typeof counted
+  } catch {
+    const result = countProbe.cases[0]
+    throw new Error(
+      `Guest process ceiling verification failed: ${JSON.stringify({
+        invalidJson: true,
+        compileExit: countProbe.compiled.exitCode,
+        exitCode: result?.exitCode,
+        limit: result?.limit,
+        timeMs: result?.timeMs,
+        wallMs: result?.wallMs,
+        memoryKb: result?.memoryKb,
+        stdoutBytes: Buffer.byteLength(result?.stdout ?? ''),
+      })}`
+    )
   }
   if (
     countProbe.compiled.exitCode ||

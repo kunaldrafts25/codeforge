@@ -2,6 +2,7 @@ import { buildApp } from './app.js'
 import { loadConfig } from './config.js'
 import { logger } from './logger.js'
 import { attachSockets } from './sockets.js'
+import { startSettlementWorker } from './contests/operations.js'
 
 async function main(): Promise<void> {
   const config = loadConfig()
@@ -9,6 +10,10 @@ async function main(): Promise<void> {
   await app.ready()
 
   attachSockets(app.server)
+  const stopSettlements = startSettlementWorker(error =>
+    logger.error({ err: error }, 'Contest settlement failed')
+  )
+  app.addHook('onClose', stopSettlements)
 
   try {
     await app.listen({ port: config.PORT, host: '0.0.0.0' })

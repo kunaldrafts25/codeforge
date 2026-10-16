@@ -7,8 +7,60 @@ import { computeScoreboard, type ContestSubmissionEvent } from '../src/contests/
 import { finalizeContest, replayChronologicalContests } from '../src/contests/settlement.js'
 import { computeManifestHash } from '../src/contests/manifest.js'
 
+// Synthetic history must never bypass the production admission transaction. This
+// isolated fixture writer is deliberately local to the data-only verifier.
+async function syntheticContestSubmission(input: Parameters<typeof enqueueContestSubmission>[1]) {
+  if (!input.admittedAt)
+    throw new Error('Synthetic history requires an explicit admission timestamp')
+  const sourceHash = createHash('sha256').update(input.source).digest('hex')
+  const version = await prisma.practiceVersion.findUniqueOrThrow({
+    where: { id: input.versionId! },
+  })
+  const job = await prisma.practiceJob.create({
+    data: {
+      ownerId: input.userId,
+      versionId: version.id,
+      kind: 'SUBMIT',
+      scope: 'CONTEST',
+      contestId: input.contestId,
+      language: input.language,
+      source: input.source,
+      sourceHash,
+      requestHash: sourceHash,
+      idempotencyKey: input.idempotencyKey,
+      policy: { ...input.policy, packageHash: version.packageHash, fixtureOnly: true },
+      admittedAt: input.admittedAt,
+    },
+  })
+  const submission = await prisma.contestSubmission.create({
+    data: {
+      contestId: input.contestId,
+      userId: input.userId,
+      manifestId: input.manifestId!,
+      problemId: input.problemId!,
+      versionId: version.id,
+      problemLabel: input.problemLabel,
+      language: input.language,
+      source: input.source,
+      sourceHash,
+      idempotencyKey: input.idempotencyKey,
+      admittedAt: input.admittedAt,
+      jobId: job.id,
+    },
+  })
+  return { job, submission }
+}
+
+/**
+ * Phase 3 Data & Workflow Synthetic Smoke Test
+ *
+ * NOTE: This script exercises database workflows, ICPC scoring calculations,
+ * disputes, snapshots, and chronological replay with synthetic job completions.
+ * Real isolated judge execution and gVisor worker acceptance is certified by verify-phase3-judge.
+ */
 export async function runPhase3Verification() {
-  console.log('--- Starting Phase 3 Core Data & Operational Verification ---')
+  console.log('--- Starting Phase 3 Core Data & Operational Verification (Synthetic Fixtures) ---')
+  console.log('NOTE: Real isolated worker execution is certified by verify-phase3-judge.')
   const app = await buildApp()
   app.log.level = 'fatal'
 
@@ -245,8 +297,8 @@ export async function runPhase3Verification() {
 
     const dummyPolicy = { type: 'gvisor' }
 
-    // Enqueue submissions through queue helper
-    const sub0 = await enqueueContestSubmission(prisma, {
+    // Insert explicitly synthetic historical scoring fixtures
+    const sub0 = await syntheticContestSubmission({
       contestId: contest1.id,
       userId: competitors[0]!.id,
       manifestId: manifest.id,
@@ -268,7 +320,7 @@ export async function runPhase3Verification() {
       data: { state: 'TERMINAL', verdict: 'ACCEPTED' },
     })
 
-    const sub1_wa = await enqueueContestSubmission(prisma, {
+    const sub1_wa = await syntheticContestSubmission({
       contestId: contest1.id,
       userId: competitors[1]!.id,
       manifestId: manifest.id,
@@ -290,7 +342,7 @@ export async function runPhase3Verification() {
       data: { state: 'TERMINAL', verdict: 'WRONG_ANSWER' },
     })
 
-    const sub1_ac = await enqueueContestSubmission(prisma, {
+    const sub1_ac = await syntheticContestSubmission({
       contestId: contest1.id,
       userId: competitors[1]!.id,
       manifestId: manifest.id,
@@ -312,7 +364,7 @@ export async function runPhase3Verification() {
       data: { state: 'TERMINAL', verdict: 'ACCEPTED' },
     })
 
-    const sub2_wa1 = await enqueueContestSubmission(prisma, {
+    const sub2_wa1 = await syntheticContestSubmission({
       contestId: contest1.id,
       userId: competitors[2]!.id,
       manifestId: manifest.id,
@@ -334,7 +386,7 @@ export async function runPhase3Verification() {
       data: { state: 'TERMINAL', verdict: 'WRONG_ANSWER' },
     })
 
-    const sub2_wa2 = await enqueueContestSubmission(prisma, {
+    const sub2_wa2 = await syntheticContestSubmission({
       contestId: contest1.id,
       userId: competitors[2]!.id,
       manifestId: manifest.id,
@@ -413,6 +465,7 @@ export async function runPhase3Verification() {
 
     const finalResult = await finalizeContest(contest1.id, adminUser.id, `final-1-${runId}`)
     assert.equal(finalResult.status, 'FINALIZED')
+    assert.ok('participantsCount' in finalResult)
     assert.equal(finalResult.participantsCount, 3)
 
     // Check rating deltas zero sum
@@ -468,7 +521,7 @@ export async function runPhase3Verification() {
       },
     })
 
-    const sub0_c2 = await enqueueContestSubmission(prisma, {
+    const sub0_c2 = await syntheticContestSubmission({
       contestId: contest2.id,
       userId: c0_updated.id,
       manifestId: manifest.id,
@@ -490,7 +543,7 @@ export async function runPhase3Verification() {
       data: { state: 'TERMINAL', verdict: 'ACCEPTED' },
     })
 
-    const subNew = await enqueueContestSubmission(prisma, {
+    const subNew = await syntheticContestSubmission({
       contestId: contest2.id,
       userId: newCompetitor.id,
       manifestId: manifest.id,

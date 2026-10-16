@@ -52,6 +52,25 @@ jobs:
           path: judge-browser-evidence/**/*.png
           if-no-files-found: ignore
 
+  phase3-judge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Refuse privileged infrastructure for pull request code
+        env:
+          TRUSTED_PUSH: ${{ github.event_name == 'push' && github.repository == 'kunaldrafts25/codeforge' }}
+        run: test "$TRUSTED_PUSH" = true
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@v4
+        with: { version: '9.0.0', run_install: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Real contest judge, crash recovery, three-candidate browser lifecycle and restore
+        run: bash scripts/verify-phase3-judge.sh
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -160,5 +179,4 @@ jobs:
       - name: Clean lingering server ports
         if: always()
         run: fuser -k 3000/tcp 3001/tcp 5000/tcp 8025/tcp 2>/dev/null || true
-      - name: Phase 3 browser, PostgreSQL and restore journeys
-        run: bash scripts/verify-phase3-data.sh --browser
+      # Phase 3 browser acceptance requires the isolated worker and runs in phase3-judge.

@@ -48,6 +48,7 @@ async function admit(
   if (existing) {
     const original = await prisma.practiceVersion.findUnique({ where: { id: existing.versionId } })
     if (
+      existing.scope !== 'PRACTICE' ||
       original?.problemId !== body.problemId ||
       (body.versionId && body.versionId !== existing.versionId) ||
       existing.kind !== kind ||
@@ -656,14 +657,22 @@ export const practiceRoutes: FastifyPluginAsyncZod = async app => {
     },
     async request => {
       const executionPolicy = await policy()
-      const job = await rejudgePracticeJob(prisma, {
-        id: request.params.id,
-        actorId: request.user!.id,
-        reason: request.body.reason,
-        idempotencyKey: request.body.idempotencyKey,
-        policy: executionPolicy,
-      })
-      return { id: job.id, state: job.state, generation: job.generation }
+      try {
+        const job = await rejudgePracticeJob(prisma, {
+          id: request.params.id,
+          actorId: request.user!.id,
+          reason: request.body.reason,
+          idempotencyKey: request.body.idempotencyKey,
+          policy: executionPolicy,
+        })
+        return { id: job.id, state: job.state, generation: job.generation }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (msg.includes('not found') || msg.includes('Only practice jobs')) {
+          throw notFound('JOB_NOT_FOUND', 'Practice job not found')
+        }
+        throw conflict('REJUDGE_FAILED', msg)
+      }
     }
   )
   app.get(
@@ -671,7 +680,7 @@ export const practiceRoutes: FastifyPluginAsyncZod = async app => {
     { schema: { querystring: pageQuery }, preHandler: [app.requireRole(...operators)] },
     async request => {
       const { page, limit } = request.query
-      const where = { state: 'DEAD_LETTER' }
+      const where = { state: 'DEAD_LETTER', scope: 'PRACTICE' }
       const [rows, total] = await Promise.all([
         prisma.practiceJob.findMany({
           where,
